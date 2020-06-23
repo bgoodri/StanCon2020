@@ -1,0 +1,590 @@
+---
+title: "Bayesian Inference without Probability Density Functions"
+author: Ben Goodrich
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+autosize: true
+header-includes:
+   - \usepackage{amsmath}
+   - \usepackage{amssymb}
+   - \usepackage{color}
+output:
+  ioslides_presentation:
+    widescreen: yes
+editor_options: 
+  chunk_output_type: console
+---
+<style type="text/css">
+slides > slide:not(.nobackground):after {
+  content: '';
+}
+</style>
+
+```{r setup, include=FALSE}
+options(width = 100)
+library(knitr)
+opts_chunk$set(echo = TRUE)
+knit_hooks$set(small.mar = function(before, options, envir) {
+    if (before) par(mar = c(4, 4, .1, .1), las = 1)  # smaller margin on top and right
+})
+hook_output <- knit_hooks$get("output")
+knit_hooks$set(output = function(x, options) {
+  lines <- options$output.lines
+  if (is.null(lines)) {
+    return(hook_output(x, options))  # pass to default hook
+  }
+  x <- unlist(strsplit(x, "\n"))
+  more <- "..."
+  if (length(lines)==1) {        # first n lines
+    if (length(x) > lines) {
+      # truncate the output, but add ....
+      x <- c(head(x, lines), more)
+    }
+  } else {
+    x <- c(more, x[lines], more)
+  }
+  # paste these lines together
+  x <- paste(c(x, ""), collapse = "\n")
+  hook_output(x, options)
+})
+options(rcpp.cache.dir = getwd())
+options(scipen = 5)
+library(rstan)
+library(ggplot2)
+options(mc.cores = parallel::detectCores())
+```
+
+## Obligatory Disclosure
+
+* Ben is an employee of Columbia University, which has received several research grants to develop Stan
+* Ben is also a manager of GG Statistics LLC, which uses Stan for business
+* According to Columbia University 
+  [policy](https://research.columbia.edu/content/conflict-interest-and-research), any such employee who 
+  has any equity stake in, a title (such as officer or director) with, or is expected to earn at least 
+  $\$5,000.00$ per year from a private company is required to disclose these facts in presentations
+
+<div style="float: left; width: 60%;">
+<video width="500" height="250" controls>
+  <source src="https://video.twimg.com/ext_tw_video/999106109523742720/pu/vid/640x360/ljdUoEqXji0ES_CV.mp4?tag=3" type="video/mp4">
+Your browser does not support the video tag.
+</video> 
+</div>
+<div style="float: right; width: 40%;">
+```{r, echo = FALSE, message = FALSE, fig.height=3, fig.width=4.5}
+pp2 <- cranlogs::cran_downloads(package = "rstan", from = "2015-01-01", to = Sys.Date())
+library(ggplot2)
+ggplot(pp2,aes(x = date, y = count)) +
+  geom_smooth(show.legend = FALSE, se = FALSE) +
+  geom_hline(yintercept = 0) + 
+  geom_vline(xintercept = as.numeric(as.Date("2018-05-20")), color = "red") +
+  labs(x = 'Date', y = 'Daily downloads',
+    title = 'RStan Daily Downloads from RStudio Mirror',
+    caption = "Season 3, Episode 9 of Billions") +
+  theme(plot.caption = element_text(color = "red", face = "italic"))
+```
+</div>
+
+## Main Points
+
+> - Motivating Assumption: Most applied statisticians, especially those without graduate degrees from
+  statistics departments, cannot make good use of PDFs
+> - PDFs are like complex numbers in that they both enable some elegant math but are
+  far removed from the real world applied statisticians inhabit
+> - Easiest to articulate probabilistic information through quantiles
+> - Choosing a prior PDF and choosing a transformation are flip sides of a coin
+> - Probability distributions defined by inverse CDFs also tend to be more flexible
+
+## Bayes Rule
+
+- If $X$ and $Y$ are defined on discrete sample spaces, Bayes' Rule is intuitive:
+$$\Pr\left(y \mid x\right) = \frac{\Pr\left(y\right) \times \Pr\left(x \mid y\right)}
+{\Pr\left(x\right)} = \frac{\Pr\left(y\right) \times \Pr\left(x \mid y\right)}
+{\sum_{y \in \Omega_Y} \Pr\left(y\right) \Pr\left(x \mid y\right)}$$
+
+> - If $X$ and $\theta$ are defined on continuous sample / parameter spaces, Bayes' Rule
+  is less intuitive because it involves many Probability Density Functions (PDFs)
+$$f\left(\theta \mid x\right) = \frac{f\left(\theta\right) \times f\left(x \mid \theta\right)}
+{f\left(x\right)} = \frac{f\left(\theta\right) \times f\left(x \mid \theta\right)}
+{\int_\Theta f\left(\theta\right) \times f\left(x \mid \theta\right) d\theta}$$
+
+> - But Bayes' Rule can be re-written under a change-of-variables from $\theta$ to $p$
+$$f\left(p \mid x\right) = \left|\frac{\partial}{\partial p}\theta\left(p\right) \right|
+\frac{f\left(\theta\left(p\right)\right) \times f\left(x \mid \theta\left(p\right)\right)}
+{f\left(x\right)} = \frac{f\left(p\right) f\left(x \mid \theta\left(p\right)\right)}{f\left(x\right)}$$
+
+## Generative Models
+
+- Generative modeling is more fundamental to Bayesianism than Bayes' Rule is
+- Prior predictive matching is fairly intuitive even on
+  continuous parameter spaces since it operates at the RNG level:
+$$\widetilde{\theta} \thicksim \mathcal{Beta}\left(\mu, \phi\right);
+  \widetilde{x} \thicksim \mathcal{Binomial}\left(\widetilde{n, \theta}\right)$$
+  keep $\widetilde{\theta}$ if $\widetilde{x} = x$, where $\thicksim$ reads as "is drawn from"
+
+> - But in the Stan language, $\thicksim$ does NOT read as "is drawn from"
+> - It could mean "would have been drawn from in the absence of observed data"
+> - In practice, it causes the C++ to add a log-PDF value to the kernel
+> - Most Stan users do not understand that, even if they have never used BUGS
+
+## Problems with Common Probability Distributions
+
+- There are too many probability distributions leading to a paradox of choice
+- Many probability distributions were invented to describe the distribution of
+  data under specific assumptions about the data-generating process
+- Other probability distributions were invented to describe the distribution of
+  a test statistic across datasets that were randomly sampled from a population
+- Most common probability distributions have explicit expressions for $\mu$ and $\sigma^2$
+
+    * Is there any random variable where you feel you know the variance without
+      estimating it from a bunch of realizations?
+    * How can you ask people to do non-elementary integrals in their heads?
+      What if the prior expectation and / or variance does not even exist?
+      
+> - Historically, prior distribution families were chosen to facilitate Gibbs sampling. 
+  Only recently has anyone [asked](http://www.metalogdistributions.com/publications.html)
+  questions like "What probability distributions are most useful for expressing beliefs about unknowns?"
+
+## Inverse Cumulative Distribution Functions
+
+- A CDF, $F\left(\theta \mid \dots\right)$, is an increasing function from 
+  $\Theta$ to $\left[0,1\right]$ so its inverse is an increasing function from $\left[0,1\right]$ to $\Theta$
+- $\theta = F^{-1}\left(p \mid \dots\right)$ is also known as a quantile function (of $p$)
+- $F^{-1}\left(0.5 \mid \dots \right)$ is the median of $\theta$, while
+  $F^{-1}\left(0.25 \mid \dots \right)$ and $F^{-1}\left(0.75 \mid \dots \right)$ are the lower and
+  upper quartiles
+- Inverse CDFs rarely have elementary forms and are not in the Stan language
+- Inverse CDFs are essentially never taught, even in graduate statistics classes
+- Gilchrist (2000) is the only [textbook](https://www.google.com/books/edition/Statistical_Modelling_with_Quantile_Func/7c1LimP_e-AC?hl=en&gbpv=1&dq=Statistical+Modelling+with+Quantile+Functions&printsec=frontcover) 
+dedicated to inverse CDFs
+- If $\widetilde{p} \thicksim Uniform\left(0,1\right)$ and 
+  $\widetilde{\theta} = F^{-1}\left(\widetilde{p} \mid \dots\right)$, 
+  then $\widetilde{\theta}$ is a realization from a probability distribution that
+  has the PDF $f\left(\theta \mid \dots\right) = \frac{\partial}{\partial \theta} F\left(\theta \mid \dots\right)$
+- $\mathbb{E}\theta = \int_0^1 F^{-1}\left(p \mid \dots\right) dp = 
+\int_\Theta \theta f\left(\theta \mid \dots\right) d\theta$ iff the integrals converge
+
+## Cauchy Prior with(out) ICDF Reparameterization {.smaller}
+
+<div class="columns-2">
+```{r, cauchy, cache=TRUE, warning=FALSE, output.lines = 3:5, comment=""}
+monitor(stan(model_code =
+'
+parameters {
+  real theta;
+}
+model {
+  theta ~ cauchy(0, 1);
+}
+', seed = 12345, refresh = 0))
+```
+WARNINGS ABOUT DIVERGENT TRANSITIONS $\uparrow$
+```{r, cauchy_reparameterized, cache = TRUE, output.lines = 3:6, comment = ""}
+monitor(stan(model_code =
+'
+parameters {
+  real<lower = 0, upper = 1> p; // cumulative probability
+}
+transformed parameters {
+  real theta = tan(pi() * (p - 0.5)); // ICDF of Cauchy
+} // no model block needed because no observed data
+', seed = 12345, refresh = 0))
+```
+$\uparrow$ No divergent transitions or warnings of any kind
+</div>
+
+> - We had thought of the Cauchy prior as desirable but
+  unworkable in Stan without this ICDF "trick"
+> - We need to start thinking about ICDF reparameterizations as being 
+  good in and of themselves because they avoid the need for PDFs and 
+  ultimately the need to think in terms of many common distributions
+
+## Stan Skeleton with Inverse CDF Transformations
+
+```{stan output.var="icdf", eval = FALSE}
+data {
+  int<lower = 0> N;               // number of observations
+  vector[N] y;                    // observed outcomes
+  ...                             // known hyperparameters
+}
+parameters {
+  real<lower = 0, upper = 1> p;   // cumulative probability
+}
+transformed parameters {
+  real theta = some_icdf(p, ...); // parameter of interest
+}
+model {
+  y ~ likelihood(theta);          // function of theta, not y
+} // no explicit prior distribution for p
+generated quantities {            // posterior predictive realization
+  real y_ = likelihood_rng(some_icdf(uniform_rng(0, 1), ...));
+}
+```
+
+## Generalized Lambda Distribution (GLD)
+
+The GLD lacks an explicit PDF / CDF so it is
+[defined](https://mpra.ub.uni-muenchen.de/43333/3/MPRA_paper_43333.pdf)
+by its inverse CDF:
+$$F^{-1}\left(p \mid m, r, a, s\right) = 
+m + r \times F^{-1}\left(p \mid m = 0, r = 1, a, s\right) \\
+F^{-1}\left(p \mid m = 0, r = 1, a, s\right) = 
+\frac{S\left(p; a, s\right) - S\left(0.5; a, s\right)}
+{S\left(0.75; a, s\right) - S\left(0.25; a, s\right)} \\
+S\left(p; a, s\right) = \frac{p^{\alpha + \beta} - 1}{\alpha + \beta} - 
+\frac{\left(1 - p\right)^{\alpha - \beta} - 1}{\alpha - \beta},
+\alpha = \frac{0.5 - s}{2\sqrt{s\left(1 - s\right)}},
+\beta = \frac{a}{2\sqrt{1 - a^2}}$$
+
+- $m$ is the median
+- $r > 0$ is the interquartile range, i.e. the difference between the quartiles
+- $a \in \left(-1,1\right)$ controls the asymmetry (if symmetric, then $a = 0$)
+- $s \in \left(0,1\right)$ controls the steepness (i.e. the heaviness) of its tails
+- Limits are needed as $s \rightarrow \frac{1}{2}\left(1 \pm a\right)$
+
+## Special Cases of the GLD (for some $m$ and $r$)
+
+```{r, echo = FALSE, fig.width=11, fig.height=5.5, fig.keep = c(1, 3, 5, 7, 9, 11, 13, 19, seq(22, 36, by = 2))}
+new_slide = function(title = "Special Cases of the GLD (for some $m$ and $r$)") {
+  knitr::asis_output(paste0("\n\n## ", title, "\n\n"))
+}
+par(mar = c(4, 4, .1, .1), las = 1, bg = "lightgrey")
+plot(c(-1, 1), c(0,1), type = "n", las = 1, xlab = "Asymmetry (a)", ylab = "Steepness (s)")
+new_slide()
+
+polygon(x = c(-1, 0, 1), y = c(1, 1/2, 1), col = 2, border = 2)
+text(x = 0, y = 1.02, labels = "Unbounded", col = 2)
+new_slide()
+
+polygon(x = c( 1,  1, 0), y = c(1, 0, 1 / 2), col = 5, border = 5)
+text(x =  1.02, y = 1 / 2, labels = "Lower Bounded", col = 5, srt = 270)
+new_slide()
+
+polygon(x = c(-1, -1, 0), y = c(1, 0, 1 / 2), col = 4, border = 4)
+text(x = -1.02, y = 1 / 2, labels = "Upper Bounded", col = 4, srt = 90)
+new_slide()
+
+polygon(x = c(-1, 0, 1), y = c(0, 1/2, 0), col = 3, border = 3)
+text(x = 0, y = -0.02, labels = "Bounded on Both Sides", col = 3)
+new_slide()
+
+points(x = 0, y = 1 / 2, pch = 20)
+text(x = 0, y = 1/2, labels = 'Logistic(0,1)', pos = 4)
+new_slide()
+
+points(x = 1, y = 0, pch = 20)
+text(x = 1, y = -0.02, labels = 'Exponential(1)', pos = 4, srt = 90)
+new_slide()
+
+points(x = 0.412, y = 0.3, pch = 20)
+text(x = 0.412, y = 0.3, labels = '"Gamma"(4,1)', pos = 4)
+
+points(x = 0.6671, y = 0.1991, pch = 20)
+text(x = 0.6671, y = 0.1991, labels = expression(paste('"', chi^2, '"(3)')), pos = 4)
+
+points(x = 0.2844, y = 0.358, pch = 20)
+text(x = 0.2844, y = 0.358, labels = '"Lognormal"(0,0.25)', pos = 4)
+new_slide()
+
+points(x = 0, y = 1 / 2 - 1 / sqrt(5), pch = 20)
+points(x = 0, y = 1 / 2 - 2 / sqrt(17), pch = 20)
+text(x = 0, y = 1 / 2 - 1 / sqrt(5), pos = 1, labels = 'Uniform(0,1)', offset = 1 / 5)
+new_slide()
+
+points(x = 0, y = 0.3661, pch = 20)
+text(x = 0, y = 0.3661, labels = '"Normal"(0,1)', pos = 1)
+new_slide()
+
+points(x = 0, y = 0.647, pch = 20)
+text(x = 0, y = 0.647, labels = '"Laplace"(0,1)', pos = 1)
+new_slide()
+
+points(x = 0, y = 0.9434, pch = 20)
+text(x = 0, y = 0.9434, labels = '"Cauchy"(0,1)', pos = 3)
+new_slide()
+
+s <- function(a, k) {
+H <- function(x) ifelse(x >= 0, 1, -1)
+  1 / 2 - H(abs(a) - sqrt(4 / (4 + k^2))) * 
+          sqrt( (1 - 2 * k * abs(1 / 2 * a / sqrt(1 - a^2)) + k^2 * (1 / 2 * a / sqrt(1 - a^2))^2) / 
+                (4 - 8 * k * abs(1 / 2 * a / sqrt(1 - a^2)) + k^2 + 4 *  k^2 * (1 / 2 * a / sqrt(1 - a^2))^2) )
+}
+for (k in 1:4) {
+  curve(s(a, k),from = -1, to = 1, xname = "a", add = TRUE, lty = 2, col = "gold")
+  text(-0.5, s(0.5, k), labels = paste("k = ", k), col = "gold", pos = 1, offset = 2 / k)
+  new_slide()
+}
+text(c(-0.46, -0.5), y = c(.425, .2), 
+     labels = c("finite moments", "All moments finite"), col = "gold", pos = c(4,1))
+```
+
+## [Limitations of Generalized Lambda Distributions](https://xianblog.wordpress.com/2011/09/05/a-misleading-title/)
+
+- The uniform distribution (and perhaps some others) is an exact special case
+  of a GLD with $a = 0$ and either $s = 1 / 2 - 1 / \sqrt{5}$ or $s = 1 / 2 - 2 / \sqrt{17}$
+  
+    * But if you wanted to represent a uniform prior with a GLD, it would not
+    matter which set of asymmetry and steepness hyperparameters you used
+
+- There are some low-kurtosis distributions that no GLD can reach
+  
+    * Dudewicz and Karian (1996) [uses](http://personal.denison.edu/~karian/papers/ext_general_lambda_II.pdf)
+    a generalization of the beta distribution to complement the GLD so that 4
+    finite moments can always be matched
+    
+- The asymmetry and steepness parameters of a GLD are no more intuitive than
+  the shape parameters of any other distribution 
+  
+    * But we can solve for them numerically with enough quantile information
+    
+- The only GLD that is consistent with the quantile information may be
+  bounded on one or both sides even when the parameter space conceptually is not
+  
+    * But we can see when the posterior mass piles up on a boundary
+
+## Double Bounded Case
+
+```{r, GLD, warning = FALSE}
+rstan::expose_stan_functions("quantile_functions.stan"); source("GLD_helpers.R")
+(a_s <- GLD_solver_bounded(bounds = c(0, 1), median = 0.3, IQR = 0.4))
+```
+```{r, echo = FALSE, fig.width=11, fig.height=3.75, small.mar = TRUE}
+m <- 0.3
+r <- 0.4
+curve(qgld(p, median = m, IQR = r, asymmetry = a_s[1], steepness = a_s[2]),
+      from = 0, to = 1, n = 10001, xname = "p", ylab = expression(theta), axes = FALSE)
+p <- c(.25, .5, .75)
+theta <- qgld(p, median = m, IQR = r, a_s[1], a_s[2])
+axis(1, at = c(0, p, 1))
+axis(2, at = c(0, round(theta, digits = 3), 1), las = 1)
+for (j in seq_along(p)) {
+  segments(x0 = p[j], y0 = -1000, y1 = GLD_icdf(p[j], m, r, a_s[1], a_s[2]),
+           col = 2, lty = 2)
+  segments(x0 = -1, y0 = GLD_icdf(p[j], m, r, a_s[1], a_s[2]), x1 = p[j],
+           col = 2, lty = 2)
+}
+
+```
+
+## Lower Bounded Case
+
+```{r}
+(a_s <- GLD_solver_LBFGS(lower_quartile = 0.5, median = 1, upper_quartile = 1.75, 
+                         other_quantile = 0, alpha = 0, check = FALSE))
+```
+```{r, echo = FALSE, fig.width=11, fig.height=3.75, small.mar = TRUE}
+m <- 1
+r <- 1.25
+curve(qgld(p, median = m, IQR = r, asymmetry = a_s[1], steepness = a_s[2]),
+      from = 0, to = 1, xname = "p", ylab = expression(theta), axes = FALSE)
+p <- c(.25, .5, .75)
+theta <- qgld(p, median = m, IQR = r, a_s[1], a_s[2])
+axis(1, at = c(0, p, 1))
+axis(2, at = c(0, round(theta, digits = 3), 6), las = 1)
+for (j in seq_along(p)) {
+  segments(x0 = p[j], y0 = -1000, y1 = GLD_icdf(p[j], m, r, a_s[1], a_s[2]),
+           col = 2, lty = 2)
+  segments(x0 = -1, y0 = GLD_icdf(p[j], m, r, a_s[1], a_s[2]), x1 = p[j],
+           col = 2, lty = 2)
+}
+```
+
+## Unbounded Case
+
+```{r}
+(a_s <- GLD_solver_LBFGS(lower_quartile = -1, median = 0, upper_quartile = 1, 
+                         other_quantile = 3, alpha = 0.95, check = FALSE)) # "Laplace"(0,1)
+```
+```{r, echo = FALSE, fig.width=11, fig.height=3.5, small.mar = TRUE}
+m <- 0
+r <- 2
+curve(qgld(p, median = m, IQR = r, asymmetry = a_s[1], steepness = a_s[2]),
+      from = 0, to = 1, xname = "p", ylab = expression(theta), axes = FALSE)
+p <- c(.25, .5, .75, .95)
+theta <- qgld(p, median = m, IQR = r, a_s[1], a_s[2])
+axis(1, at = c(0, p, 1))
+axis(2, at = c(-5, round(theta, digits = 3), 5), las = 1)
+for (j in seq_along(p)) {
+  segments(x0 = p[j], y0 = -1000, y1 = GLD_icdf(p[j], m, r, a_s[1], a_s[2]),
+           col = 2, lty = 2)
+  segments(x0 = -1, y0 = GLD_icdf(p[j], m, r, a_s[1], a_s[2]), x1 = p[j],
+           col = 2, lty = 2)
+}
+```
+
+## Accidentally Bounded Case
+
+```{r}
+(a_s <- GLD_solver_LBFGS(lower_quartile = -2/3, median = 0, upper_quartile = 2/3, 
+                         other_quantile = 2, alpha = 0.98, check = FALSE))
+GLD_icdf(0, median = 0, IQR = 4 / 3, asymmetry = a_s[1], steepness = a_s[2])
+```
+```{r, echo = FALSE, fig.width=10, fig.height=2.3, small.mar = TRUE}
+m <- 0
+r <- 4 / 3
+curve(qgld(p, median = m, IQR = r, asymmetry = a_s[1], steepness = a_s[2]),
+      from = 0, to = 1, xname = "p", ylab = expression(theta), n = 10001)
+curve(qnorm(p), from = 0, to = 1, xname = "p", add = TRUE, col = 2, lty = 2, n = 10001)
+legend("topleft", legend = c("GLD", "Standard Normal"), col = 1:2, lty = 1:2, box.lwd = NA)
+```
+
+## [Constant Elasticity of Substitution (CES) Models](https://cran.r-project.org/web/packages/micEconCES/vignettes/CES.pdf)
+
+$$Y_{t} \approx \gamma \left(\delta\left(\delta_{1}K_{t}^{-\rho_{1}} + \left(1-\delta_{1}\right)E_{t}^{-\rho_{1}}\right)^{\frac{\rho}{\rho_1}} + \left(1-\delta\right)L_{t}^{-\rho}\right)^{-\frac{\nu}{\rho}}$$
+
+- $Y_t$ is value added, $K_t$ is capital, $E_t$ is energy, and $L_t$ is labor in Kemfert (1988)
+- $\rho = \frac{1}{\sigma} - 1$ and $\rho_1 = \frac{1}{\sigma_1} - 1$ where $\sigma > 0$ is
+  the elasticity of substitution between labor and both capital and energy (the quantity of 
+  interest), while $\sigma_1 > 0$ is the elasticity of substitution between capital
+  and energy
+- $\delta \in \left[0,1\right]$ and $\delta_1 \in \left[0,1\right]$ are input intensities
+- $\nu > 0$ is the elasticity of scale with $\nu = 1$ indicating constant returns to scale
+- $\gamma > 0$ is an mostly uninterpretable total factor productivity parameter
+- Take the logarithm and assume Gaussian error with standard deviation $\lambda > 0$
+- Informative priors on the parameters are essential to avoid divergences
+
+## Stan Program for CES Model {.smaller}
+
+<div class="columns-2">
+```{stan CES, cache = TRUE, output.var="CES"}
+#include quantile_functions.stan
+data {
+  int<lower = 0> T;
+  vector[T] log_Y;
+  vector[T] log_K; 
+  vector[T] log_E;
+  vector[T] log_L;
+  vector[7] m; vector[7] r;
+  vector[7] a; vector[7] s;
+} // medians, IQRs, asymmetries, and steepnesses
+parameters {
+  vector<lower = 0, upper = 1>[7] p;
+}  // cumulative probability primitives
+transformed parameters {
+  real sigma   = GLD_icdf(p[1], m[1], r[1], a[1], s[1]);
+  real sigma_1 = GLD_icdf(p[2], m[2], r[2], a[2], s[2]);
+  real delta   = GLD_icdf(p[3], m[3], r[3], a[3], s[3]);
+  real delta_1 = GLD_icdf(p[4], m[4], r[4], a[4], s[4]);
+  real nu      = GLD_icdf(p[5], m[5], r[5], a[5], s[5]);
+  real lambda  = GLD_icdf(p[6], m[6], r[6], a[6], s[6]);
+  real log_gamma = 
+    GLD_icdf(p[7], m[7], r[7], a[7], s[7]);
+} // GLD_icdf defined in quantile_functions.stan
+model {
+  real rho   = -1 + inv(sigma);
+  real rho_1 = -1 + inv(sigma_1);
+  real nu_rho = nu / rho;
+  real log_delta = log(delta);
+  real log_delta_1 = log(delta_1);
+  real log1m_delta = log1m(delta);
+  real log1m_delta_1 = log1m(delta_1);
+  real rho_rho_1 = rho / rho_1;
+  vector[T] mu; 
+  for (t in 1:T) // with numerical stability
+    mu[t] = log_gamma
+          - nu_rho
+          * log_sum_exp(log_delta + rho_rho_1
+          * log_sum_exp(log_delta_1 - 
+                        rho_1 * log_K[t],
+                        log1m_delta_1 - 
+                        rho_1 * log_E[t]),
+                        log1m_delta - 
+                        rho * log_L[t]);
+  log_Y ~ normal(mu, lambda); // log-likelihood
+} // MLEs invariant to the ICDF transformations
+```
+</div>
+
+## Point [Estimates](https://www.econstor.eu/bitstream/10419/203136/1/main_SG.pdf) of Capital-Labor Substitutability
+
+![elasticitiy estimates](elasticities.png)
+
+## Asymmetry and Steepness for the CES Model
+
+```{r, warning = FALSE}
+sigma_a_s <- GLD_solver_LBFGS(lower_quartile = 0.25, median = 0.5, upper_quartile = 0.9,
+                              other_quantile = 0, alpha = 0, check = FALSE) # goes to Inf
+
+delta_a_s <- GLD_solver_bounded(bounds = c(0, 1), median = 0.5, IQR = 0.4)
+
+nu_a_s <- GLD_solver_LBFGS(lower_quartile = 0.5, median = 1.0, upper_quartile = 1.5,
+                           other_quantile = 0, alpha = 0, check = FALSE) # goes to 2.0
+
+lambda_a_s <- GLD_solver_LBFGS(lower_quartile = 0.01, median = 0.03, upper_quartile = 0.05,
+                               other_quantile = 0, alpha = 0, check = FALSE) # goes to 0.08
+
+log_gamma_a_s <- GLD_solver_LBFGS(lower_quartile = 3, median = 5, upper_quartile = 8,
+                                  other_quantile = 10, alpha = 0.9, check = FALSE)
+
+m <- c(rep(0.5,  4), 1, 0.03, 5)
+r <- c(rep(0.65, 2), rep(0.4, 2), 1, 0.04, 5)
+a <- c(rep(sigma_a_s[1], 2), rep(delta_a_s[1], 2), nu_a_s[1], lambda_a_s[1], log_gamma_a_s[1])
+s <- c(rep(sigma_a_s[2], 2), rep(delta_a_s[2], 2), nu_a_s[2], lambda_a_s[2], log_gamma_a_s[2])
+```
+
+## Maximum Likelihood Estimates of the CES Model
+
+```{r}
+data(GermanIndustry, package = "micEconCES")
+GermanIndustry <- log(subset( GermanIndustry, year < 1973 | year > 1975)[ , 2:5])
+colnames(GermanIndustry) <- paste0("log_", c('Y', 'K', 'L', 'E'))
+data_list <- with(GermanIndustry, list(T = nrow(GermanIndustry), log_Y = log_Y, 
+                                       log_K = log_K, log_E = log_E, log_L = log_L,
+                                       m = m, r = r, a = a, s = s))
+```
+```{r}
+MLEs <- optimizing(CES, data = data_list, as_vector = FALSE, refresh = 0)
+round(unlist(MLEs$par[-1]), digits = 3)
+names(MLEs$par$p) <- paste0("p_", names(unlist(MLEs$par[-1]))); round(MLEs$par$p, 3)
+```
+
+## Posterior Estimates for the CES Model
+
+```{r, post, cache = TRUE, output.lines = 5:13}
+post <- sampling(CES, data = data_list, iter = 5000, warmup = 1000, seed = 12345,
+                 control = list(adapt_delta = 0.99, max_treedepth = 13), refresh = 0)
+print(post, pars = "p", include = FALSE, probs = c(.025, .1, .25, .5, 0.75, .9, .975))
+```
+```{r, echo = FALSE}
+cat("Maximized likelihood is", MLEs$value)
+```
+
+## Planes of the Posterior Distribution
+
+```{r, fig.width=10, fig.height=5, warning = FALSE, small.mar = TRUE}
+pairs(post, pars = "p", include = FALSE, log = 1) # sigma is plotted on the log scale
+```
+
+## Another Use for the GLD
+
+```{r}
+sigma <- sort(as.data.frame(post)$sigma)
+quantiles <- quantile(sigma, probs = c(0.25, 0.5, 0.75, 0.9))
+post_a_s <- GLD_solver_LBFGS(lower_quartile = quantiles[1], median = quantiles[2],
+                             upper_quartile = quantiles[3], alpha = 0.9,
+                             other_quantile = quantiles[4], check = FALSE)
+rbind(prior = sigma_a_s, posterior = post_a_s)
+count_moments(post_a_s[1], post_a_s[2])
+```
+
+$\sigma$ has a finite posterior expectation and variance but no well-defined skewness
+
+## How Well Does a GLD Fit Posterior Draws of $\sigma$?
+
+```{r, small.mar = TRUE, echo = FALSE, fig.height=5, fig.width=11}
+plot(seq_along(sigma) / length(sigma), sigma, type = "l", 
+     xlab = "p", ylab = "elasticity of substitution (log scale)", log = "y")
+curve(qgld(p, median = quantiles[2], IQR = quantiles[3] - quantiles[1], 
+           asymmetry = post_a_s[1], steepness = post_a_s[2]),
+      from = 0, to = 1, n = 10001, xname = "p", add = TRUE, col = 2, lty = 2)
+legend("topleft", legend = c("Posterior draws", "GLD fit"), col = 1:2, lty = 1:2, box.lwd = NA)
+```
+
+## Conclusions
+
+* Is your audience equipped to understand prior PDFs?
+* If not, quantiles rather than expectations is an easier entry point to probability
+* Can avoid prior PDFs by applying the logic of PRNGs that use an inverse CDF to transform a 
+  standard uniform random variate into a random variate from the intended distribution
+* There a few distributions like the GLD that have explicit inverse CDFs and (functions 
+  of) quantiles as the hyperparameters
+* We need to get inverse CDFs into Stan Math (many of them are in Boost) and the Stan language
+* Copulas?
