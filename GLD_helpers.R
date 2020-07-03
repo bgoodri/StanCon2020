@@ -97,6 +97,25 @@ GLD_solver_bounded <- function(bounds, median, IQR, check = TRUE, ...) {
   return(a_s)
 }
 
+GLD_solver_unbounded <- function(lower_quartile, median, upper_quartile, check = TRUE, ...) {
+  obj_chi <- function(chi) {
+    xi <- 0.5 * max(1 - chi, 1 + chi)
+    S_75 <- S_(0.75, chi, xi)
+    S_25 <- S_(0.25, chi, xi)
+    (S_75 + S_25 - 2 * S_(0.5, chi, xi) ) / (S_75 - S_25) - skewness
+  }
+  skewness <- (upper_quartile + lower_quartile - 2 * median) / 
+              (upper_quartile - lower_quartile)
+  chi <- try(suppressWarnings(uniroot(obj_chi, lower = -0.99, upper = 0.99)$root), silent = TRUE)
+  if (!is.numeric(chi)) {
+    if (check) stop("no GLD is possible with these quantiles")
+    return(c(asymmetry = NA_real_, steepness = NA_real_))
+  }
+  xi <- 0.5 * max(1 - chi, 1 + chi) + 1e-16
+  a_s <- c(asymmetry = chi, steepness = xi)
+  return(a_s)
+}
+
 GLD_solver_maxent <- function(lower_quartile, median, upper_quartile, 
                               check = TRUE, ...) {
   IQR <- upper_quartile - lower_quartile
