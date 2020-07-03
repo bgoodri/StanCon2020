@@ -69,11 +69,11 @@ Your browser does not support the video tag.
 </video> 
 </div>
 <div style="float: right; width: 40%;">
-```{r, echo = FALSE, message = FALSE, fig.height=3, fig.width=4.5}
+```{r, echo = FALSE, message = FALSE, fig.height=3, fig.width=4.5, warning = FALSE}
 pp2 <- cranlogs::cran_downloads(package = "rstan", from = "2015-01-01", to = Sys.Date())
 library(ggplot2)
 ggplot(pp2,aes(x = date, y = count)) +
-  geom_smooth(show.legend = FALSE, se = FALSE) +
+  geom_smooth(show.legend = FALSE, se = FALSE) + scale_y_log10() +
   geom_hline(yintercept = 0) + 
   geom_vline(xintercept = as.numeric(as.Date("2018-05-20")), color = "red") +
   labs(x = 'Date', y = 'Daily downloads',
@@ -115,15 +115,19 @@ $$f\left(p \mid x\right) = \left|\frac{\partial}{\partial p}\theta\left(p\right)
 
 - Generative modeling is more fundamental to Bayesianism than Bayes' Rule is
 - Prior predictive matching is fairly intuitive even on
-  continuous parameter spaces since it operates at the RNG level:
+  continuous parameter spaces since it operates at the RNG level
+  (where $\thicksim$ reads as "is drawn from"):
 $$\widetilde{\theta} \thicksim \mathcal{Beta}\left(\mu, \phi\right);
-  \widetilde{x} \thicksim \mathcal{Binomial}\left(\widetilde{n, \theta}\right)$$
-  keep $\widetilde{\theta}$ if $\widetilde{x} = x$, where $\thicksim$ reads as "is drawn from"
+  \widetilde{x} \thicksim \mathcal{Binomial}\left(n, \widetilde{\theta}\right)$$
+  and then keep $\widetilde{\theta}$ iff $\widetilde{x} = x$. Acceptance
+  proportion converges to $\Pr\left(x\right)$.
 
 > - But in the Stan language, $\thicksim$ does NOT read as "is drawn from"
 > - It could mean "would have been drawn from in the absence of observed data"
 > - In practice, it causes the C++ to add a log-PDF value to the kernel
 > - Most Stan users do not understand that, even if they have never used BUGS
+> - One underappreciated reason for the popularity of BUGS is that users did not
+  have to think much about PDFs
 
 ## Problems with Common Probability Distributions
 
@@ -151,7 +155,7 @@ $$\widetilde{\theta} \thicksim \mathcal{Beta}\left(\mu, \phi\right);
 - $F^{-1}\left(0.5 \mid \dots \right)$ is the median of $\theta$, while
   $F^{-1}\left(0.25 \mid \dots \right)$ and $F^{-1}\left(0.75 \mid \dots \right)$ are the lower and
   upper quartiles
-- Inverse CDFs rarely have elementary forms and are not in the Stan language
+- Inverse CDFs rarely have explicit forms and are not in the Stan language
 - Inverse CDFs are essentially never taught, even in graduate statistics classes
 - Gilchrist (2000) is the only [textbook](https://www.google.com/books/edition/Statistical_Modelling_with_Quantile_Func/7c1LimP_e-AC?hl=en&gbpv=1&dq=Statistical+Modelling+with+Quantile+Functions&printsec=frontcover) 
 dedicated to inverse CDFs
@@ -201,23 +205,302 @@ $\uparrow$ No divergent transitions or warnings of any kind
 
 ```{stan output.var="icdf", eval = FALSE}
 data {
-  int<lower = 0> N;               // number of observations
-  vector[N] y;                    // observed outcomes
-  ...                             // known hyperparameters
+  int<lower = 0> N;                // number of observations
+  vector[N] y;                     // observed outcomes
+  ...                              // known hyperparameters
 }
 parameters {
-  real<lower = 0, upper = 1> p;   // cumulative probability
+  real<lower = 0, upper = 1> p;    // cumulative probability
 }
 transformed parameters {
-  real theta = some_icdf(p, ...); // parameter of interest
+  real theta = some_icdf(p, ...);  // parameter of interest
 }
 model {
-  y ~ likelihood(theta);          // function of theta, not y
+  y ~ likelihood(theta);           // function of theta, not y
 } // no explicit prior distribution for p
-generated quantities {            // posterior predictive realization
-  real y_ = likelihood_rng(some_icdf(uniform_rng(0, 1), ...));
+generated quantities {            
+  real y_ = likelihood_rng(theta); // posterior predictive realization
 }
 ```
+
+## The No Name Distribution of the 1st Kind
+
+$$\theta\left(p; \mathbf{c}\right) \equiv \sum_{k = 0}^K c_k T_k\left(2p - 1\right)$$
+where $T_k\left(2p - 1\right)$ is the $k$-th shifted Chebyshev polynomial of the 1st kind
+
+* Truncated Chebyshev series are used to _approximate_ a Lipschitz-continuous function, but
+  here we are using it to _define_ a quantile function in much the same way that an entire
+  function can be defined by its Taylor series as $K \uparrow \infty$
+* This construction for $\theta\left(p; \mathbf{c}\right)$ satisfies [Keelin and Powley's (2011)](http://www.metalogdistributions.com/images/KeelinPowley_QuantileParameterizedDistributions_2011.pdf) 
+  definition of a "quantile-parameterized distribution" (QPD), provided that, for all $p \in \left(0,1\right)$,
+  $$0 \leq \frac{\partial}{\partial p} \theta\left(p; \mathbf{c}\right) = 
+  2\sum_{k = 1}^K k c_k U_{k - 1}\left(2p - 1\right),$$
+  where $U_k\left(2p - 1\right)$ is the $k$-th shifted Chebyshev polynomial of the 2nd kind
+  
+## Determining $c_k$
+
+* Let $\mathbf{p}$ be an ordered vector of $K + 1$ cumulative probabilities and let
+  $$\underbrace{\mathbf{T}\left(\mathbf{p}\right)}_{\left(K + 1\right) \times \left(K + 1\right)} = 
+  \begin{bmatrix} 
+    1 & T_1\left(2p_0 - 1\right) & \dots & T_K\left(2p_0 - 1\right) \\
+    1 & T_1\left(2p_1 - 1\right) & \dots & T_K\left(2p_1 - 1\right) \\
+    \dots & \dots & \dots & \dots \\
+    1 & T_1\left(2p_K - 1\right) & \dots & T_K\left(2p_K - 1\right)
+  \end{bmatrix}$$
+* If $\boldsymbol{\theta} =  \mathbf{T}\left(\mathbf{p}\right) \mathbf{c}$
+  is also given, then [Powley (2013)](http://www.metalogdistributions.com/images/Powley_Dissertation_2013-augmented.pdf)
+  proves that 
+  $\mathbf{c} = \mathbf{T}\left(\mathbf{p}\right)^{-1}\boldsymbol{\theta}$
+  is unique, provided $\mathbf{T}\left(\mathbf{p}\right)^{-1}$ exists and
+  $0 \leq \frac{\partial}{\partial p} \theta\left(p; \mathbf{c}\right)$ for all $p \in \left(0,1\right)$
+  
+> - Thus, if a user inputs $\mathbf{p}$ and $\boldsymbol{\theta}$, 
+  we can solve for $\mathbf{c}$ and then check that $\theta\left(p; \mathbf{c}\right)$ is non-decreasing.
+  The user need not deal with $\mathbf{c}$ and $T_k\left(2p - 1\right)$ directly.
+> - As $K \uparrow \infty$, $\theta\left(p; \mathbf{c}\right)$ can approach
+  any Lipschitz-continuous inverse CDF
+
+## Double Bounded Case
+
+```{r}
+source("no_name1.R"); q <- qno_name1(quantiles = c(0, 0.25, 1), p = c(0, 0.5, 1)) # ICDF
+```
+```{r, echo = FALSE, fig.width=11, fig.height=5, small.mar = TRUE}
+curve(q(p), from = 0, to = 1, n = 10001, xname = "p", ylab = expression(theta), axes = FALSE)
+p <- c(.25, .5, .75)
+theta <- q(p)
+axis(1, at = c(0, p, 1))
+axis(2, at = c(0, p, 1), las = 1)
+for (j in 2) {
+  segments(x0 = p[j], y0 = -1000, y1 = theta[j], col = 2, lty = 2)
+  segments(x0 = -1, y0 = theta[j], x1 = p[j],    col = 2, lty = 2)
+}
+```
+
+## Overcoming Infeasibility {.build}
+
+```{r, error = TRUE, fig.keep='none'}
+q <- qno_name1(quantiles = c(0, 0.24, 1), p = c(0, 0.5, 1)) # Oh noes!
+```
+```{r}
+q <- qno_name1(quantiles = c(0, 0.11, 0.24, 1), p = c(0, 0.25, 0.5, 1))
+```
+```{r, echo = FALSE, fig.width=11, fig.height=3, small.mar = TRUE}
+curve(q(p), from = 0, to = 1, n = 10001, xname = "p", ylab = expression(theta), axes = FALSE)
+p <- c(.25, .5)
+theta <- q(p)
+axis(1, at = c(0, p, 1))
+axis(2, at = c(0, round(theta, digits = 3), 1), las = 1)
+for (j in seq_along(p)) {
+  segments(x0 = p[j], y0 = -1000, y1 = theta[j], col = 2, lty = 2)
+  segments(x0 = -1, y0 = theta[j], x1 = p[j],    col = 2, lty = 2)
+}
+```
+
+## Lower Bounded Case
+
+* [Powley (2013)](http://www.metalogdistributions.com/images/Powley_Dissertation_2013-augmented.pdf)
+  proves that a strictly increasing and infinitely differentiable transformation of a QPD is a QPD,
+  but must choose transformations wisely
+$$\theta\left(p; \mathbf{c}\right) \equiv e^{\tanh^{-1}\sum_{k = 0}^K c_k T_k\left(2p - 1\right)}
+  \iff \tanh \log \theta\left(p; \mathbf{c}\right) \equiv \sum_{k = 0}^K c_k T_k\left(2p - 1\right)$$
+  
+
+```{r}
+q <- qno_name1(quantiles = c(0, 1, Inf), p = c(0, 0.5, 1))
+```
+```{r, echo = FALSE, fig.width=11, fig.height=2.5, small.mar = TRUE, warning = FALSE}
+curve(q(p), from = 0, to = 1, n = 10001, xname = "p", 
+      ylab = expression(theta), axes = FALSE, log = "y")
+p <- c(.25, .5, .75)
+theta <- q(p)
+axis(1, at = c(0, p, 1))
+axis(2, las = 1)
+for (j in 2) {
+  segments(x0 = p[j], y0 = .Machine$double.eps, y1 = theta[j], col = 2, lty = 2)
+  segments(x0 = -1, y0 = theta[j], x1 = p[j],    col = 2, lty = 2)
+}
+```
+
+## Unbounded Case
+
+$$\theta\left(p; \mathbf{c}\right) \equiv \tanh^{-1}\sum_{k = 0}^K c_k T_k\left(2p - 1\right)
+  \iff \tanh \theta\left(p; \mathbf{c}\right) \equiv \sum_{k = 0}^K c_k T_k\left(2p - 1\right)$$
+```{r}
+q <- qno_name1(quantiles = c(-Inf, 0, Inf), p = c(0, 0.5, 1))
+```
+```{r, echo = FALSE, fig.width=11, fig.height=3.75, small.mar = TRUE}
+curve(q(p), from = 0, to = 1, n = 10001, xname = "p", 
+      ylab = expression(theta), axes = FALSE)
+p <- c(.25, .5, .75)
+theta <- q(p)
+axis(1, at = c(0, p, 1))
+axis(2, las = 1)
+for (j in 2) {
+  segments(x0 = p[j], y0 = -1000, y1 = theta[j], col = 2, lty = 2)
+  segments(x0 = -1, y0 = theta[j], x1 = p[j],    col = 2, lty = 2)
+}
+```
+  
+
+## [Constant Elasticity of Substitution (CES) Models](https://cran.r-project.org/web/packages/micEconCES/vignettes/CES.pdf)
+
+$$Y_{t} \approx \gamma e^{\lambda \left(t - 1\right)} \left(\delta\left(\delta_{1}K_{t}^{-\rho_{1}} + \left(1-\delta_{1}\right)E_{t}^{-\rho_{1}}\right)^{\frac{\rho}{\rho_1}} + \left(1-\delta\right)L_{t}^{-\rho}\right)^{-\frac{\nu}{\rho}}$$
+
+- $Y_t$ is value added, $K_t$ is capital, $E_t$ is energy, and $L_t$ is labor in Kemfert (1988)
+- $\rho = \frac{1}{\sigma} - 1$ and $\rho_1 = \frac{1}{\sigma_1} - 1$ where $\sigma > 0$ is
+  the elasticity of substitution between labor and both capital and energy (the quantity of 
+  interest), while $\sigma_1 > 0$ is the elasticity of substitution between capital
+  and energy
+- $\delta \in \left[0,1\right]$ and $\delta_1 \in \left[0,1\right]$ are input intensities
+- $\nu > 0$ is the elasticity of scale with $\nu = 1$ indicating constant returns to scale
+- $\gamma > 0$ is a less-interpretable total factor productivity parameter when $t = 1$
+- $\lambda$ governs the time trend (a.k.a. drift)
+- Take logarithms and assume Gaussian error with standard deviation $\omega > 0$.
+  Informative priors on the parameters are essential to avoid divergences.
+
+## Point [Estimates](https://www.econstor.eu/bitstream/10419/203136/1/main_SG.pdf) of Capital-Labor Substitutability
+
+![elasticitiy estimates](elasticities.png)
+
+## Prior Coefficients for $\sigma$ and $\sigma_1$
+
+```{r, fig.width=11, fig.height=3.7, small.mar = TRUE, warning = FALSE}
+q <- qno_name1(quantiles = c(0, 0.26, 0.5, 0.9, Inf), p = c(0, 0.25, 0.5, 0.75, 1))
+curve(q(p), from = 1e-16, to = 1, n = 1001, xname = "p", ylab = expression(sigma), log = "y")
+c_sigma <- make_c(quantiles = c(0, 0.26, 0.5, 0.9, Inf), p = c(0, 0.25, 0.5, 0.75, 1))
+c_sigma_1 <- c_sigma
+```
+
+## Prior Coefficients for $\delta$ and $\delta_1$
+
+```{r, fig.width=11, fig.height=3.7, small.mar = TRUE}
+q <- qno_name1(quantiles = c(0, 1 / 3, 0.5, 2 / 3, 1), p = c(0, 0.25, 0.5, 0.75, 1))
+hist(q(runif(10000)), probability = TRUE, main = "", xlab = expression(delta))
+c_delta <- make_c(quantiles = c(0, 1 / 3, 0.5, 2 / 3, 1), p = c(0, 0.25, 0.5, 0.75, 1))
+c_delta_1 <- c_delta
+```
+
+
+## Prior Coefficients for $\nu$, $\omega$, $\lambda$, and $\log \gamma$
+
+```{r}
+q_nu <- qno_name1(quantiles = c(0, 0.6, 1.0, 1.4, Inf), p = c(0, 0.25, 0.5, 0.75, 1))
+q_omega <- qno_name1(quantiles = c(0, 0.016, 0.03, 0.05, 0.15), 
+                     p = c(0, 0.25, 0.5, 0.75, 1))
+q_lambda <- qno_name1(quantiles = c(0, 0.01, 0.02, 0.03, 0.05), 
+                      p = c(0, 0.25, 0.5, 0.75, 1))
+q_log_gamma <- qno_name1(quantiles = c(-2, 1, 3, 5, 7, 10),
+                         p = c(0, 0.25, 0.5, 0.75, 0.9, 1))
+
+c_nu <- make_c(quantiles = c(0, 0.6, 1.0, 1.4, Inf), p = c(0, 0.25, 0.5, 0.75, 1))
+c_omega <- make_c(quantiles = c(0, 0.016, 0.03, 0.05, 0.15), 
+                  p = c(0, 0.25, 0.5, 0.75, 1))
+c_lambda <- make_c(quantiles = c(0, 0.01, 0.02, 0.03, 0.05), 
+                   p = c(0, 0.25, 0.5, 0.75, 1))
+c_log_gamma <- make_c(quantiles = c(-2, 1, 3, 5, 7, 10),
+                      p = c(0, 0.25, 0.5, 0.75, 0.9, 1))
+```
+
+## Stan Program for CES Model {.smaller}
+
+<div class="columns-2">
+```{stan CES, cache = TRUE, output.var="CES"}
+// defines no_name1_{dlu}b_icdf(real p, vector c)
+#include no_name1.stan
+data {
+  int<lower = 0> T; // if T == 0, this draws from priors
+  vector[T] log_Y; vector[T] log_K; 
+  vector[T] log_E; vector[T] log_L;
+  vector[5] c_sigma; vector[5] c_sigma_1; 
+  vector[5] c_delta; vector[5] c_delta_1; 
+  vector[5] c_nu; vector[5] c_omega;
+  vector[5] c_lambda; vector[6] c_log_gamma;
+}
+parameters {
+  vector<lower = 0, upper = 1>[8] p;
+}  // cumulative probability primitives
+transformed parameters {
+  real sigma   = no_name1_lb_icdf(p[1], c_sigma);
+  real sigma_1 = no_name1_lb_icdf(p[2], c_sigma_1);
+  real delta   = no_name1_db_icdf(p[3], c_delta);
+  real delta_1 = no_name1_db_icdf(p[4], c_delta_1);
+  real nu      = no_name1_lb_icdf(p[5], c_nu);
+  real omega   = no_name1_db_icdf(p[6], c_omega);
+  real lambda  = no_name1_db_icdf(p[7], c_lambda);
+  real log_gamma = no_name1_db_icdf(p[8], c_log_gamma);
+}
+model {
+  real rho   = -1 + inv(sigma);
+  real rho_1 = -1 + inv(sigma_1);
+  real nu_rho = nu / rho;
+  real log_delta = log(delta);
+  real log_delta_1 = log(delta_1);
+  real log1m_delta = log1m(delta);
+  real log1m_delta_1 = log1m(delta_1);
+  real rho_rho_1 = rho / rho_1;
+  vector[T] mu; 
+  for (t in 1:T) // with numerical stability
+    mu[t] = log_gamma
+          + lambda * (t - 1)
+          - nu_rho
+          * log_sum_exp(log_delta + rho_rho_1
+          * log_sum_exp(log_delta_1 - 
+                        rho_1 * log_K[t],
+                        log1m_delta_1 - 
+                        rho_1 * log_E[t]),
+                        log1m_delta - 
+                        rho * log_L[t]);
+  log_Y ~ normal(mu, omega); // log-likelihood
+} // MLEs invariant to the ICDF transformations
+```
+</div>
+
+## Maximum Likelihood Estimates of the CES Model
+
+```{r}
+data(GermanIndustry, package = "micEconCES")
+GermanIndustry <- log(subset(GermanIndustry, year < 1973 | year > 1975)[ , 2:5])
+colnames(GermanIndustry) <- paste0("log_", c('Y', 'K', 'L', 'E'))
+data_list <- with(GermanIndustry, list(T = nrow(GermanIndustry), log_Y = log_Y, 
+                                       log_K = log_K, log_E = log_E, log_L = log_L,
+                                       c_sigma = c_sigma, c_sigma_1 = c_sigma_1,
+                                       c_delta = c_delta, c_delta_1 = c_delta_1,
+                                       c_nu = c_nu, c_omega = c_omega,
+                                       c_lambda = c_lambda, c_log_gamma = c_log_gamma))
+```
+```{r}
+MLEs <- optimizing(CES, data = data_list, as_vector = FALSE, refresh = 0, seed = 12345)
+round(rbind(unlist(MLEs$par[-1]), p = MLEs$par$p), digits = 3)
+```
+
+## Posterior Estimates for the CES Model
+
+```{r, post, cache = TRUE, output.lines = 5:14, dependson = "CES"}
+post <- sampling(CES, data = data_list, seed = 12345,
+                 control = list(adapt_delta = 0.92, max_treedepth = 12), refresh = 0)
+print(post, pars = "p", include = FALSE, probs = c(.025, .1, .25, .5, 0.75, .9, .975))
+```
+```{r, echo = FALSE}
+cat("Maximized likelihood is", MLEs$value)
+```
+
+## Planes of the Posterior Distribution
+
+```{r, fig.width=11, fig.height=5.25, warning = FALSE, small.mar = TRUE}
+pairs(post, pars = "p", include = FALSE, log = 1:2) # elasticities plotted on log scale
+```
+
+## Conclusions
+
+* Is your audience equipped to understand prior PDFs?
+* If not, quantiles rather than expectations is an easier entry point to probability
+* Can avoid prior PDFs by applying the logic of PRNGs that use an inverse CDF to transform a 
+  standard uniform random variate into a random variate from the intended distribution
+* There a few distributions like the GLD that have explicit inverse CDFs and (functions 
+  of) quantiles as the hyperparameters
+* We need to get inverse CDFs into Stan Math (many of them are in Boost) and the Stan language
+* Copulas?
 
 ## Generalized Lambda Distribution (GLD)
 
@@ -361,7 +644,6 @@ for (j in seq_along(p)) {
   segments(x0 = -1, y0 = GLD_icdf(p[j], m, r, a_s[1], a_s[2]), x1 = p[j],
            col = 2, lty = 2)
 }
-
 ```
 
 ## Lower Bounded Case
@@ -425,166 +707,3 @@ curve(qgld(p, median = m, IQR = r, asymmetry = a_s[1], steepness = a_s[2]),
 curve(qnorm(p), from = 0, to = 1, xname = "p", add = TRUE, col = 2, lty = 2, n = 10001)
 legend("topleft", legend = c("GLD", "Standard Normal"), col = 1:2, lty = 1:2, box.lwd = NA)
 ```
-
-## [Constant Elasticity of Substitution (CES) Models](https://cran.r-project.org/web/packages/micEconCES/vignettes/CES.pdf)
-
-$$Y_{t} \approx \gamma \left(\delta\left(\delta_{1}K_{t}^{-\rho_{1}} + \left(1-\delta_{1}\right)E_{t}^{-\rho_{1}}\right)^{\frac{\rho}{\rho_1}} + \left(1-\delta\right)L_{t}^{-\rho}\right)^{-\frac{\nu}{\rho}}$$
-
-- $Y_t$ is value added, $K_t$ is capital, $E_t$ is energy, and $L_t$ is labor in Kemfert (1988)
-- $\rho = \frac{1}{\sigma} - 1$ and $\rho_1 = \frac{1}{\sigma_1} - 1$ where $\sigma > 0$ is
-  the elasticity of substitution between labor and both capital and energy (the quantity of 
-  interest), while $\sigma_1 > 0$ is the elasticity of substitution between capital
-  and energy
-- $\delta \in \left[0,1\right]$ and $\delta_1 \in \left[0,1\right]$ are input intensities
-- $\nu > 0$ is the elasticity of scale with $\nu = 1$ indicating constant returns to scale
-- $\gamma > 0$ is an mostly uninterpretable total factor productivity parameter
-- Take the logarithm and assume Gaussian error with standard deviation $\lambda > 0$
-- Informative priors on the parameters are essential to avoid divergences
-
-## Stan Program for CES Model {.smaller}
-
-<div class="columns-2">
-```{stan CES, cache = TRUE, output.var="CES"}
-#include quantile_functions.stan
-data {
-  int<lower = 0> T;
-  vector[T] log_Y;
-  vector[T] log_K; 
-  vector[T] log_E;
-  vector[T] log_L;
-  vector[7] m; vector[7] r;
-  vector[7] a; vector[7] s;
-} // medians, IQRs, asymmetries, and steepnesses
-parameters {
-  vector<lower = 0, upper = 1>[7] p;
-}  // cumulative probability primitives
-transformed parameters {
-  real sigma   = GLD_icdf(p[1], m[1], r[1], a[1], s[1]);
-  real sigma_1 = GLD_icdf(p[2], m[2], r[2], a[2], s[2]);
-  real delta   = GLD_icdf(p[3], m[3], r[3], a[3], s[3]);
-  real delta_1 = GLD_icdf(p[4], m[4], r[4], a[4], s[4]);
-  real nu      = GLD_icdf(p[5], m[5], r[5], a[5], s[5]);
-  real lambda  = GLD_icdf(p[6], m[6], r[6], a[6], s[6]);
-  real log_gamma = 
-    GLD_icdf(p[7], m[7], r[7], a[7], s[7]);
-} // GLD_icdf defined in quantile_functions.stan
-model {
-  real rho   = -1 + inv(sigma);
-  real rho_1 = -1 + inv(sigma_1);
-  real nu_rho = nu / rho;
-  real log_delta = log(delta);
-  real log_delta_1 = log(delta_1);
-  real log1m_delta = log1m(delta);
-  real log1m_delta_1 = log1m(delta_1);
-  real rho_rho_1 = rho / rho_1;
-  vector[T] mu; 
-  for (t in 1:T) // with numerical stability
-    mu[t] = log_gamma
-          - nu_rho
-          * log_sum_exp(log_delta + rho_rho_1
-          * log_sum_exp(log_delta_1 - 
-                        rho_1 * log_K[t],
-                        log1m_delta_1 - 
-                        rho_1 * log_E[t]),
-                        log1m_delta - 
-                        rho * log_L[t]);
-  log_Y ~ normal(mu, lambda); // log-likelihood
-} // MLEs invariant to the ICDF transformations
-```
-</div>
-
-## Point [Estimates](https://www.econstor.eu/bitstream/10419/203136/1/main_SG.pdf) of Capital-Labor Substitutability
-
-![elasticitiy estimates](elasticities.png)
-
-## Asymmetry and Steepness for the CES Model
-
-```{r, warning = FALSE}
-sigma_a_s <- GLD_solver_LBFGS(lower_quartile = 0.25, median = 0.5, upper_quartile = 0.9,
-                              other_quantile = 0, alpha = 0, check = FALSE) # goes to Inf
-
-delta_a_s <- GLD_solver_bounded(bounds = c(0, 1), median = 0.5, IQR = 0.4)
-
-nu_a_s <- GLD_solver_LBFGS(lower_quartile = 0.5, median = 1.0, upper_quartile = 1.5,
-                           other_quantile = 0, alpha = 0, check = FALSE) # goes to 2.0
-
-lambda_a_s <- GLD_solver_LBFGS(lower_quartile = 0.01, median = 0.03, upper_quartile = 0.05,
-                               other_quantile = 0, alpha = 0, check = FALSE) # goes to 0.08
-
-log_gamma_a_s <- GLD_solver_LBFGS(lower_quartile = 3, median = 5, upper_quartile = 8,
-                                  other_quantile = 10, alpha = 0.9, check = FALSE)
-
-m <- c(rep(0.5,  4), 1, 0.03, 5)
-r <- c(rep(0.65, 2), rep(0.4, 2), 1, 0.04, 5)
-a <- c(rep(sigma_a_s[1], 2), rep(delta_a_s[1], 2), nu_a_s[1], lambda_a_s[1], log_gamma_a_s[1])
-s <- c(rep(sigma_a_s[2], 2), rep(delta_a_s[2], 2), nu_a_s[2], lambda_a_s[2], log_gamma_a_s[2])
-```
-
-## Maximum Likelihood Estimates of the CES Model
-
-```{r}
-data(GermanIndustry, package = "micEconCES")
-GermanIndustry <- log(subset( GermanIndustry, year < 1973 | year > 1975)[ , 2:5])
-colnames(GermanIndustry) <- paste0("log_", c('Y', 'K', 'L', 'E'))
-data_list <- with(GermanIndustry, list(T = nrow(GermanIndustry), log_Y = log_Y, 
-                                       log_K = log_K, log_E = log_E, log_L = log_L,
-                                       m = m, r = r, a = a, s = s))
-```
-```{r}
-MLEs <- optimizing(CES, data = data_list, as_vector = FALSE, refresh = 0)
-round(unlist(MLEs$par[-1]), digits = 3)
-names(MLEs$par$p) <- paste0("p_", names(unlist(MLEs$par[-1]))); round(MLEs$par$p, 3)
-```
-
-## Posterior Estimates for the CES Model
-
-```{r, post, cache = TRUE, output.lines = 5:13}
-post <- sampling(CES, data = data_list, iter = 5000, warmup = 1000, seed = 12345,
-                 control = list(adapt_delta = 0.99, max_treedepth = 13), refresh = 0)
-print(post, pars = "p", include = FALSE, probs = c(.025, .1, .25, .5, 0.75, .9, .975))
-```
-```{r, echo = FALSE}
-cat("Maximized likelihood is", MLEs$value)
-```
-
-## Planes of the Posterior Distribution
-
-```{r, fig.width=10, fig.height=5, warning = FALSE, small.mar = TRUE}
-pairs(post, pars = "p", include = FALSE, log = 1) # sigma is plotted on the log scale
-```
-
-## Another Use for the GLD
-
-```{r}
-sigma <- sort(as.data.frame(post)$sigma)
-quantiles <- quantile(sigma, probs = c(0.25, 0.5, 0.75, 0.9))
-post_a_s <- GLD_solver_LBFGS(lower_quartile = quantiles[1], median = quantiles[2],
-                             upper_quartile = quantiles[3], alpha = 0.9,
-                             other_quantile = quantiles[4], check = FALSE)
-rbind(prior = sigma_a_s, posterior = post_a_s)
-count_moments(post_a_s[1], post_a_s[2])
-```
-
-$\sigma$ has a finite posterior expectation and variance but no well-defined skewness
-
-## How Well Does a GLD Fit Posterior Draws of $\sigma$?
-
-```{r, small.mar = TRUE, echo = FALSE, fig.height=5, fig.width=11}
-plot(seq_along(sigma) / length(sigma), sigma, type = "l", 
-     xlab = "p", ylab = "elasticity of substitution (log scale)", log = "y")
-curve(qgld(p, median = quantiles[2], IQR = quantiles[3] - quantiles[1], 
-           asymmetry = post_a_s[1], steepness = post_a_s[2]),
-      from = 0, to = 1, n = 10001, xname = "p", add = TRUE, col = 2, lty = 2)
-legend("topleft", legend = c("Posterior draws", "GLD fit"), col = 1:2, lty = 1:2, box.lwd = NA)
-```
-
-## Conclusions
-
-* Is your audience equipped to understand prior PDFs?
-* If not, quantiles rather than expectations is an easier entry point to probability
-* Can avoid prior PDFs by applying the logic of PRNGs that use an inverse CDF to transform a 
-  standard uniform random variate into a random variate from the intended distribution
-* There a few distributions like the GLD that have explicit inverse CDFs and (functions 
-  of) quantiles as the hyperparameters
-* We need to get inverse CDFs into Stan Math (many of them are in Boost) and the Stan language
-* Copulas?
