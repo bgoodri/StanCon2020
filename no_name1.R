@@ -35,8 +35,8 @@ qno_name1 <- function(quantiles,
   c <- make_c(quantiles, p)
   if (missing(p)) c <- zapsmall(c)
   len <- length(c) - 1L
-  if (check) for (j in 1:len) {
-    opt <- optimize(function(p) {
+  if (check) {
+    root <- try(uniroot(function(p) {
       D <- rep(NA_real_, len + 1L)
       D[1] <- 0
       D[2] <- 1
@@ -44,12 +44,16 @@ qno_name1 <- function(quantiles,
         D[k] <- 2 * (2 * p - 1) * D[k - 1] - D[k - 2]
       D <- 2 * 0:len * D
       return(D %*% c)
-    }, lower = p[j], upper = p[j + 1L])
-    if (is.nan(opt$objective) || opt$objective < 0) {
+    }, lower = 0, upper = 1, extendInt = "upX", tol = sqrt(.Machine$double.eps)), silent = TRUE)
+    if (is.list(root) && root$f.root < sqrt(.Machine$double.eps) && 
+        root$root > 0 && root$root < 1) {
       q <- Vectorize(function(p) (T(p, n = 0:(length(c) - 1L)) %*% c)[1])
       curve(q(p), from = 0, to = 1,
-            n = 10001, xname = "p", ylab = expression(theta), axes = TRUE, las = 1)
-      stop("\nImplied quantile function is decreasing when p = ", round(opt$minimum, digits = 3), ".",
+            n = 10001, xname = "p", ylab = expression(theta), axes = FALSE, las = 1)
+      axis(1)
+      abline(v = root$root, col = 2, lty = 2)
+      stop("\nImplied quantile function is decreasing just before p = ", 
+           round(root$root, digits = 3), ".",
            "\nTry increasing the number of quantiles and / or changing their values.")
     }
   }

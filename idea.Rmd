@@ -126,8 +126,7 @@ $$\widetilde{\theta} \thicksim \mathcal{Beta}\left(\mu, \phi\right);
 > - It could mean "would have been drawn from in the absence of observed data"
 > - In practice, it causes the C++ to add a log-PDF value to the kernel
 > - Most Stan users do not understand that, even if they have never used BUGS
-> - One underappreciated reason for the popularity of BUGS is that users did not
-  have to think much about PDFs
+> - BUGS users do not have to think about PDFs very much
 
 ## Problems with Common Probability Distributions
 
@@ -147,18 +146,18 @@ $$\widetilde{\theta} \thicksim \mathcal{Beta}\left(\mu, \phi\right);
   Only recently has anyone [asked](http://www.metalogdistributions.com/publications.html)
   questions like "What probability distributions are most useful for expressing beliefs about unknowns?"
 
-## Inverse Cumulative Distribution Functions
+## Inverse Cumulative Distribution Functions (ICDFs)
 
 - A CDF, $F\left(\theta \mid \dots\right)$, is an increasing function from 
-  $\Theta$ to $\left[0,1\right]$ so its inverse is an increasing function from $\left[0,1\right]$ to $\Theta$
-- $\theta = F^{-1}\left(p \mid \dots\right)$ is also known as a quantile function (of $p$)
-- $F^{-1}\left(0.5 \mid \dots \right)$ is the median of $\theta$, while
+  $\Theta$ to $\left[0,1\right]$ so its inverse always exists and is an increasing function from 
+  $\left[0,1\right]$ to $\Theta$
+- $F^{-1}\left(0.5 \mid \dots \right)$ is the median, while
   $F^{-1}\left(0.25 \mid \dots \right)$ and $F^{-1}\left(0.75 \mid \dots \right)$ are the lower and
-  upper quartiles
-- Inverse CDFs rarely have explicit forms and are not in the Stan language
-- Inverse CDFs are essentially never taught, even in graduate statistics classes
+  upper quartiles, so an ICDF is also called a quantile function
+- ICDFs rarely have explicit forms and are not in the Stan language
+- ICDFs are essentially never taught, even in graduate statistics classes
 - Gilchrist (2000) is the only [textbook](https://www.google.com/books/edition/Statistical_Modelling_with_Quantile_Func/7c1LimP_e-AC?hl=en&gbpv=1&dq=Statistical+Modelling+with+Quantile+Functions&printsec=frontcover) 
-dedicated to inverse CDFs
+dedicated to ICDFs
 - If $\widetilde{p} \thicksim Uniform\left(0,1\right)$ and 
   $\widetilde{\theta} = F^{-1}\left(\widetilde{p} \mid \dots\right)$, 
   then $\widetilde{\theta}$ is a realization from a probability distribution that
@@ -225,38 +224,36 @@ generated quantities {
 
 ## The No Name Distribution of the 1st Kind
 
-$$\theta\left(p; \mathbf{c}\right) \equiv \sum_{k = 0}^K c_k T_k\left(2p - 1\right)$$
-where $T_k\left(2p - 1\right)$ is the $k$-th shifted Chebyshev polynomial of the 1st kind
+$$\theta\left(p; \mathbf{c}\right) \equiv \sum_{k = 0}^K c_k T_k\left(2p - 1\right) = 
+\sum_{k = 0}^K c_k \cos\left(k \cos^{-1}\left(2p - 1\right)\right)$$
+where $T_k\left(2p - 1\right)$ is the $k$-th [shifted Chebyshev polynomial of the 1st kind](https://archive.siam.org/books/ot99/OT99SampleChapter.pdf)
 
-* Truncated Chebyshev series are used to _approximate_ a Lipschitz-continuous function, but
-  here we are using it to _define_ a quantile function in much the same way that an entire
-  function can be defined by its Taylor series as $K \uparrow \infty$
+* [Truncated Chebyshev series](http://www.chebfun.org/ATAP/) are used to _approximate_ a 
+  Lipschitz-continuous function, but here we are using it to _define_ a quantile function 
+  in much the same way that an entire function can be defined by its infinite Taylor series
 * This construction for $\theta\left(p; \mathbf{c}\right)$ satisfies [Keelin and Powley's (2011)](http://www.metalogdistributions.com/images/KeelinPowley_QuantileParameterizedDistributions_2011.pdf) 
   definition of a "quantile-parameterized distribution" (QPD), provided that, for all $p \in \left(0,1\right)$,
   $$0 \leq \frac{\partial}{\partial p} \theta\left(p; \mathbf{c}\right) = 
-  2\sum_{k = 1}^K k c_k U_{k - 1}\left(2p - 1\right),$$
+  2\sum_{k = 1}^K k c_k U_{k - 1}\left(2p - 1\right) = 
+  2\sum_{k = 1}^K k c_k \frac{\sin\left(k \cos^{-1}\left(2p - 1\right)\right)}
+  {\sin\left(\cos^{-1}\left(2p - 1\right)\right)}$$
   where $U_k\left(2p - 1\right)$ is the $k$-th shifted Chebyshev polynomial of the 2nd kind
   
 ## Determining $c_k$
 
-* Let $\mathbf{p}$ be an ordered vector of $K + 1$ cumulative probabilities and let
-  $$\underbrace{\mathbf{T}\left(\mathbf{p}\right)}_{\left(K + 1\right) \times \left(K + 1\right)} = 
+* Let $\mathbf{u}$ be an ordered vector of $K + 1$ given cumulative probabilities and let
+  $$\underbrace{\mathbf{T}\left(\mathbf{u}\right)}_{\left(K + 1\right) \times \left(K + 1\right)} = 
   \begin{bmatrix} 
-    1 & T_1\left(2p_0 - 1\right) & \dots & T_K\left(2p_0 - 1\right) \\
-    1 & T_1\left(2p_1 - 1\right) & \dots & T_K\left(2p_1 - 1\right) \\
+    1 & T_1\left(2u_0 - 1\right) & \dots & T_K\left(2u_0 - 1\right) \\
+    1 & T_1\left(2u_1 - 1\right) & \dots & T_K\left(2u_1 - 1\right) \\
     \dots & \dots & \dots & \dots \\
-    1 & T_1\left(2p_K - 1\right) & \dots & T_K\left(2p_K - 1\right)
+    1 & T_1\left(2u_K - 1\right) & \dots & T_K\left(2u_K - 1\right)
   \end{bmatrix}$$
-* If $\boldsymbol{\theta} =  \mathbf{T}\left(\mathbf{p}\right) \mathbf{c}$
-  is also given, then [Powley (2013)](http://www.metalogdistributions.com/images/Powley_Dissertation_2013-augmented.pdf)
-  proves that 
-  $\mathbf{c} = \mathbf{T}\left(\mathbf{p}\right)^{-1}\boldsymbol{\theta}$
-  is unique, provided $\mathbf{T}\left(\mathbf{p}\right)^{-1}$ exists and
-  $0 \leq \frac{\partial}{\partial p} \theta\left(p; \mathbf{c}\right)$ for all $p \in \left(0,1\right)$
   
-> - Thus, if a user inputs $\mathbf{p}$ and $\boldsymbol{\theta}$, 
-  we can solve for $\mathbf{c}$ and then check that $\theta\left(p; \mathbf{c}\right)$ is non-decreasing.
-  The user need not deal with $\mathbf{c}$ and $T_k\left(2p - 1\right)$ directly.
+> - If a user inputs $\mathbf{u}$ and $\boldsymbol{\theta}\left(\mathbf{u}\right)$, we can solve for 
+  $\mathbf{c} = \mathbf{T}\left(\mathbf{u}\right)^{-1}\boldsymbol{\theta}\left(\mathbf{u}\right)$ and 
+  check that $\theta\left(p; \mathbf{c}\right)$ is non-decreasing. The user need not deal with $\mathbf{c}$ 
+  or $T_k\left(2p - 1\right)$.
 > - As $K \uparrow \infty$, $\theta\left(p; \mathbf{c}\right)$ can approach
   any Lipschitz-continuous inverse CDF
 
@@ -363,72 +360,47 @@ $$Y_{t} \approx \gamma e^{\lambda \left(t - 1\right)} \left(\delta\left(\delta_{
 
 ![elasticitiy estimates](elasticities.png)
 
-## Prior Coefficients for $\sigma$ and $\sigma_1$
+## Prior Quantile Function for $\sigma$ and $\sigma_1$
 
-```{r, fig.width=11, fig.height=3.7, small.mar = TRUE, warning = FALSE}
-q <- qno_name1(quantiles = c(0, 0.26, 0.5, 0.9, Inf), p = c(0, 0.25, 0.5, 0.75, 1))
-curve(q(p), from = 1e-16, to = 1, n = 1001, xname = "p", ylab = expression(sigma), log = "y")
-c_sigma <- make_c(quantiles = c(0, 0.26, 0.5, 0.9, Inf), p = c(0, 0.25, 0.5, 0.75, 1))
-c_sigma_1 <- c_sigma
+```{r, fig.width=11, fig.height=4, small.mar = TRUE, warning = FALSE}
+q <- qno_name1(quantiles = c(0, 0.27, 0.5, 0.9, Inf), p = c(0, 0.25, 0.5, 0.75, 1))
+curve(q(p), from = 1e-16, to = 1, n = 1001, xname = "p", ylab = expression(sigma))
 ```
 
-## Prior Coefficients for $\delta$ and $\delta_1$
+## Prior Quantile Function for $\delta$ and $\delta_1$
 
-```{r, fig.width=11, fig.height=3.7, small.mar = TRUE}
+```{r, fig.width=11, fig.height=4, small.mar = TRUE}
 q <- qno_name1(quantiles = c(0, 1 / 3, 0.5, 2 / 3, 1), p = c(0, 0.25, 0.5, 0.75, 1))
 hist(q(runif(10000)), probability = TRUE, main = "", xlab = expression(delta))
-c_delta <- make_c(quantiles = c(0, 1 / 3, 0.5, 2 / 3, 1), p = c(0, 0.25, 0.5, 0.75, 1))
-c_delta_1 <- c_delta
-```
-
-
-## Prior Coefficients for $\nu$, $\omega$, $\lambda$, and $\log \gamma$
-
-```{r}
-q_nu <- qno_name1(quantiles = c(0, 0.6, 1.0, 1.4, Inf), p = c(0, 0.25, 0.5, 0.75, 1))
-q_omega <- qno_name1(quantiles = c(0, 0.016, 0.03, 0.05, 0.15), 
-                     p = c(0, 0.25, 0.5, 0.75, 1))
-q_lambda <- qno_name1(quantiles = c(0, 0.01, 0.02, 0.03, 0.05), 
-                      p = c(0, 0.25, 0.5, 0.75, 1))
-q_log_gamma <- qno_name1(quantiles = c(-2, 1, 3, 5, 7, 10),
-                         p = c(0, 0.25, 0.5, 0.75, 0.9, 1))
-
-c_nu <- make_c(quantiles = c(0, 0.6, 1.0, 1.4, Inf), p = c(0, 0.25, 0.5, 0.75, 1))
-c_omega <- make_c(quantiles = c(0, 0.016, 0.03, 0.05, 0.15), 
-                  p = c(0, 0.25, 0.5, 0.75, 1))
-c_lambda <- make_c(quantiles = c(0, 0.01, 0.02, 0.03, 0.05), 
-                   p = c(0, 0.25, 0.5, 0.75, 1))
-c_log_gamma <- make_c(quantiles = c(-2, 1, 3, 5, 7, 10),
-                      p = c(0, 0.25, 0.5, 0.75, 0.9, 1))
 ```
 
 ## Stan Program for CES Model {.smaller}
 
 <div class="columns-2">
 ```{stan CES, cache = TRUE, output.var="CES"}
-// defines no_name1_{dlu}b_icdf(real p, vector c)
+// defines no_name1_{dlu}b_icdf(p, u, theta)
 #include no_name1.stan
 data {
   int<lower = 0> T; // if T == 0, this draws from priors
-  vector[T] log_Y; vector[T] log_K; 
-  vector[T] log_E; vector[T] log_L;
-  vector[5] c_sigma; vector[5] c_sigma_1; 
-  vector[5] c_delta; vector[5] c_delta_1; 
-  vector[5] c_nu; vector[5] c_omega;
-  vector[5] c_lambda; vector[6] c_log_gamma;
+  vector[T] log_Y;
+  vector[T] log_K;
+  vector[T] log_E;
+  vector[T] log_L;
+  positive_ordered[5] u;    ordered[5] theta[7];
+  positive_ordered[6] u_lg; ordered[6] theta_lg;
 }
 parameters {
   vector<lower = 0, upper = 1>[8] p;
 }  // cumulative probability primitives
 transformed parameters {
-  real sigma   = no_name1_lb_icdf(p[1], c_sigma);
-  real sigma_1 = no_name1_lb_icdf(p[2], c_sigma_1);
-  real delta   = no_name1_db_icdf(p[3], c_delta);
-  real delta_1 = no_name1_db_icdf(p[4], c_delta_1);
-  real nu      = no_name1_lb_icdf(p[5], c_nu);
-  real omega   = no_name1_db_icdf(p[6], c_omega);
-  real lambda  = no_name1_db_icdf(p[7], c_lambda);
-  real log_gamma = no_name1_db_icdf(p[8], c_log_gamma);
+  real sigma   = no_name1_lb_icdf(p[1], u, theta[1]);
+  real sigma_1 = no_name1_lb_icdf(p[2], u, theta[2]);
+  real delta   = no_name1_db_icdf(p[3], u, theta[3]);
+  real delta_1 = no_name1_db_icdf(p[4], u, theta[4]);
+  real nu      = no_name1_lb_icdf(p[5], u, theta[5]);
+  real omega   = no_name1_db_icdf(p[6], u, theta[6]);
+  real lambda  = no_name1_db_icdf(p[7], u, theta[7]);
+  real log_gamma = no_name1_db_icdf(p[8], u_lg, theta_lg);
 }
 model {
   real rho   = -1 + inv(sigma);
@@ -439,7 +411,7 @@ model {
   real log1m_delta = log1m(delta);
   real log1m_delta_1 = log1m(delta_1);
   real rho_rho_1 = rho / rho_1;
-  vector[T] mu; 
+  vector[T] mu;
   for (t in 1:T) // with numerical stability
     mu[t] = log_gamma
           + lambda * (t - 1)
@@ -456,39 +428,55 @@ model {
 ```
 </div>
 
+## Preparing the `data` Block for the Previous Slide
+
+```{r}
+u <- c(0, 0.25, 0.5, 0.75, 1)
+theta = list(sigma  = c(0, 0.27, 0.5, 0.9, Inf),  sigma_1 = c(0, 0.27, 0.5, 0.9, Inf),
+             delta  = c(0, 1 / 3, 0.5, 2 / 3, 1), delta_1 = c(0, 1 / 3, 0.5, 2 / 3, 1),
+             nu     = c(0, 0.6, 1.0, 1.4, Inf),   omega   = c(0, 0.016, 0.03, 0.05, 0.15),
+             lambda = c(0, 0.01, 0.02, 0.03, 0.05))
+u_lg = c(0, 0.25, 0.5, 0.75, 0.9, 1);
+theta_lg = c(-2, 1, 3, 5, 7, 10)
+```
+
 ## Maximum Likelihood Estimates of the CES Model
 
 ```{r}
 data(GermanIndustry, package = "micEconCES")
 GermanIndustry <- log(subset(GermanIndustry, year < 1973 | year > 1975)[ , 2:5])
 colnames(GermanIndustry) <- paste0("log_", c('Y', 'K', 'L', 'E'))
-data_list <- with(GermanIndustry, list(T = nrow(GermanIndustry), log_Y = log_Y, 
-                                       log_K = log_K, log_E = log_E, log_L = log_L,
-                                       c_sigma = c_sigma, c_sigma_1 = c_sigma_1,
-                                       c_delta = c_delta, c_delta_1 = c_delta_1,
-                                       c_nu = c_nu, c_omega = c_omega,
-                                       c_lambda = c_lambda, c_log_gamma = c_log_gamma))
+data_list <- with(GermanIndustry, 
+                  list(T = nrow(GermanIndustry), log_Y = log_Y, 
+                       log_K = log_K, log_E = log_E, log_L = log_L,
+                       u = u, theta = theta, u_lg = u_lg, theta_lg = theta_lg))
 ```
 ```{r}
-MLEs <- optimizing(CES, data = data_list, as_vector = FALSE, refresh = 0, seed = 12345)
-round(rbind(unlist(MLEs$par[-1]), p = MLEs$par$p), digits = 3)
+MLEs <- optimizing(CES, data = data_list, as_vector = FALSE, refresh = 0, seed = 54321)
+round(rbind(theta = unlist(MLEs$par[-1]), p = MLEs$par$p), digits = 3)
 ```
 
 ## Posterior Estimates for the CES Model
 
 ```{r, post, cache = TRUE, output.lines = 5:14, dependson = "CES"}
 post <- sampling(CES, data = data_list, seed = 12345,
-                 control = list(adapt_delta = 0.92, max_treedepth = 12), refresh = 0)
+                 control = list(adapt_delta = 0.96, max_treedepth = 12), refresh = 0)
 print(post, pars = "p", include = FALSE, probs = c(.025, .1, .25, .5, 0.75, .9, .975))
 ```
 ```{r, echo = FALSE}
 cat("Maximized likelihood is", MLEs$value)
 ```
 
-## Planes of the Posterior Distribution
+## Posterior Planes ($\sigma$ and $\sigma_1$ on log scale)
 
-```{r, fig.width=11, fig.height=5.25, warning = FALSE, small.mar = TRUE}
+```{r, fig.width=11, fig.height=6, warning = FALSE, small.mar = TRUE, echo = FALSE}
 pairs(post, pars = "p", include = FALSE, log = 1:2) # elasticities plotted on log scale
+```
+
+## Posterior Planes in $\log p$-space
+
+```{r, fig.width=11, fig.height=6, warning = FALSE, small.mar = TRUE, echo = FALSE}
+pairs(post, pars = names(MLEs$par[-1]), include = FALSE, log = TRUE)
 ```
 
 ## Conclusions
