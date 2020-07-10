@@ -53,45 +53,19 @@ library(ggplot2)
 options(mc.cores = parallel::detectCores())
 ```
 
-## Obligatory Disclosure
-
-* Ben is an employee of Columbia University, which has received several research grants to develop Stan
-* Ben is also a manager of GG Statistics LLC, which uses Stan for business
-* According to Columbia University 
-  [policy](https://research.columbia.edu/content/conflict-interest-and-research), any such employee who 
-  has any equity stake in, a title (such as officer or director) with, or is expected to earn at least 
-  $\$5,000.00$ per year from a private company is required to disclose these facts in presentations
-
-<div style="float: left; width: 60%;">
-<video width="500" height="250" controls>
-  <source src="https://video.twimg.com/ext_tw_video/999106109523742720/pu/vid/640x360/ljdUoEqXji0ES_CV.mp4?tag=3" type="video/mp4">
-Your browser does not support the video tag.
-</video> 
-</div>
-<div style="float: right; width: 40%;">
-```{r, echo = FALSE, message = FALSE, fig.height=3, fig.width=4.5, warning = FALSE}
-pp2 <- cranlogs::cran_downloads(package = "rstan", from = "2015-01-01", to = Sys.Date())
-library(ggplot2)
-ggplot(pp2,aes(x = date, y = count)) +
-  geom_smooth(show.legend = FALSE, se = FALSE) + scale_y_log10() +
-  geom_hline(yintercept = 0) + 
-  geom_vline(xintercept = as.numeric(as.Date("2018-05-20")), color = "red") +
-  labs(x = 'Date', y = 'Daily downloads',
-    title = 'RStan Daily Downloads from RStudio Mirror',
-    caption = "Season 3, Episode 9 of Billions") +
-  theme(plot.caption = element_text(color = "red", face = "italic"))
-```
-</div>
-
 ## Main Points
 
-> - Motivating Assumption: Most applied statisticians, especially those without graduate degrees from
-  statistics departments, cannot make good use of PDFs
-> - PDFs are like complex numbers in that they both enable some elegant math but are
-  far removed from the real world applied statisticians inhabit
-> - Easiest to articulate probabilistic information through quantiles
-> - Choosing a prior PDF and choosing a transformation are flip sides of a coin
-> - Probability distributions defined by inverse CDFs also tend to be more flexible
+- Motivation: Most potential Stan users, especially those without degrees from
+  statistics departments, cannot make good use of Probability Density Functions
+- Probability Density Functions are like complex numbers in that they facilitate 
+  theorems but are far removed from the real world most Stan users inhabit
+- Probability Density Functions are intertwined with expectations and most Stan users
+  do not have prior expectations in their heads
+  
+> - Easier to articulate probabilistic information through quantiles
+> - Choosing a prior and choosing a transformation are flip sides of the same coin
+> - Probability distributions defined by quantiles also tend to be more flexible
+  and yield better sampling behavior
 
 ## Bayes Rule
 
@@ -254,6 +228,7 @@ where $T_k\left(2p - 1\right)$ is the $k$-th [shifted Chebyshev polynomial of th
   $\mathbf{c} = \mathbf{T}\left(\mathbf{u}\right)^{-1}\boldsymbol{\theta}\left(\mathbf{u}\right)$ and 
   check that $\theta\left(p; \mathbf{c}\right)$ is non-decreasing. The user need not deal with $\mathbf{c}$ 
   or $T_k\left(2p - 1\right)$.
+> - It seems helpful if $\mathbf{u}$ consists of nodes and extrema of $T_k$
 > - As $K \uparrow \infty$, $\theta\left(p; \mathbf{c}\right)$ can approach
   any Lipschitz-continuous inverse CDF
 
@@ -482,13 +457,15 @@ pairs(post, pars = names(MLEs$par[-1]), include = FALSE, log = TRUE)
 ## Conclusions
 
 * Is your audience equipped to understand prior PDFs?
-* If not, quantiles rather than expectations is an easier entry point to probability
+* If not, quantiles rather than expectations is an easier entry point
 * Can avoid prior PDFs by applying the logic of PRNGs that use an inverse CDF to transform a 
   standard uniform random variate into a random variate from the intended distribution
-* There a few distributions like the GLD that have explicit inverse CDFs and (functions 
-  of) quantiles as the hyperparameters
 * We need to get inverse CDFs into Stan Math (many of them are in Boost) and the Stan language
-* Copulas?
+* There more QPDs and some non-QPDs that are very flexible and have explicit inverse CDFs
+
+> - Can these ideas be extended to multivariate distributions?
+> - Most multivariate distributions are already characterized by transformations
+> - Can use copulas, although that brings back density functions
 
 ## Generalized Lambda Distribution (GLD)
 
