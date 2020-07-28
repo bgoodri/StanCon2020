@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Bayesian Inference without Probability Density Functions</title>
+
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="chrome=1">
+  <meta name="generator" content="pandoc" />
+
+
+
+  <meta name="date" content="2020-07-28" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+
+  <base target="_blank">
+
+  <script type="text/javascript">
+    var SLIDE_CONFIG = {
+      // Slide settings
+      settings: {
+                title: 'Bayesian Inference without Probability Density Functions',
+                        useBuilds: true,
+        usePrettify: true,
+        enableSlideAreas: true,
+        enableTouch: true,
+                      },
+
+      // Author information
+      presenters: [
+            {
+        name:  'Ben Goodrich ( <a href="mailto:benjamin.goodrich@columbia.edu" class="email">benjamin.goodrich@columbia.edu</a> ) <a href="https://www.youtube.com/playlist?list=PLSZp9QshJ8wwWjrsGDbguwcPLUwHWUxo0">YouTube Playlist</a>' ,
+        company: '',
+        gplus: '',
+        twitter: '',
+        www: '',
+        github: ''
+      },
+            ]
+    };
+  </script>
+
+  <link href="StanCon_files/ioslides-13.5.1/fonts/fonts.css" rel="stylesheet" />
+  <link href="StanCon_files/ioslides-13.5.1/theme/css/default.css" rel="stylesheet" />
+  <link href="StanCon_files/ioslides-13.5.1/theme/css/phone.css" rel="stylesheet" />
+  <script src="StanCon_files/ioslides-13.5.1/js/modernizr.custom.45394.js"></script>
+  <script src="StanCon_files/ioslides-13.5.1/js/prettify/prettify.js"></script>
+  <script src="StanCon_files/ioslides-13.5.1/js/prettify/lang-r.js"></script>
+  <script src="StanCon_files/ioslides-13.5.1/js/prettify/lang-yaml.js"></script>
+  <script src="StanCon_files/ioslides-13.5.1/js/hammer.js"></script>
+  <script src="StanCon_files/ioslides-13.5.1/js/slide-controller.js"></script>
+  <script src="StanCon_files/ioslides-13.5.1/js/slide-deck.js"></script>
+
+  <style type="text/css">
+
+    b, strong {
+      font-weight: bold;
+    }
+
+    em {
+      font-style: italic;
+    }
+
+    summary {
+      display: list-item;
+    }
+
+    slides > slide {
+      -webkit-transition: all 0.4s ease-in-out;
+      -moz-transition: all 0.4s ease-in-out;
+      -o-transition: all 0.4s ease-in-out;
+      transition: all 0.4s ease-in-out;
+    }
+
+    .auto-fadein {
+      -webkit-transition: opacity 0.6s ease-in;
+      -webkit-transition-delay: 0.4s;
+      -moz-transition: opacity 0.6s ease-in 0.4s;
+      -o-transition: opacity 0.6s ease-in 0.4s;
+      transition: opacity 0.6s ease-in 0.4s;
+      opacity: 0;
+    }
+/* https://github.com/ropensci/plotly/pull/524#issuecomment-468142578 */
+slide:not(.current) .plotly.html-widget{
+  display: block;
+}
+
+  </style>
+
+
+</head>
+
+<body style="opacity: 0">
+
+<slides class="layout-widescreen">
+
+  <slide class="title-slide segue nobackground">
+        <!-- The content of this hgroup is replaced programmatically through the slide_config.json. -->
+    <hgroup class="auto-fadein">
+      <h1 data-config-title><!-- populated from slide_config.json --></h1>
+      <h2 data-config-subtitle><!-- populated from slide_config.json --></h2>
+      <p data-config-presenter><!-- populated from slide_config.json --></p>
+            <p style="margin-top: 6px; margin-left: -2px;">July 28, 2020</p>
+          </hgroup>
+  </slide>
+
+<style type="text/css">
+slides > slide:not(.nobackground):after {
+  content: '';
+}
+</style>
+
+<slide class=""><hgroup><h2>Obligatory Disclosure</h2></hgroup><article  id="obligatory-disclosure">
+
+<ul>
+<li>Ben is an employee of Columbia University, which has received several research grants to develop Stan</li>
+<li>Ben is also a manager of GG Statistics LLC, which uses Stan for business</li>
+<li>According to Columbia University <a href='https://research.columbia.edu/content/conflict-interest-and-research' title=''>policy</a>, any such employee who has any equity stake in, a title (such as officer or director) with, or is expected to earn at least \(\$5,000.00\) per year from a private company is required to disclose these facts in presentations</li>
+</ul>
+
+<div style="float: left; width: 60%;">
+
+<video width="500" height="250" controls>
+
+<source src="https://video.twimg.com/ext_tw_video/999106109523742720/pu/vid/640x360/ljdUoEqXji0ES_CV.mp4?tag=3" type="video/mp4">
+
+Your browser does not support the video tag. </video>
+
+</div>
+
+<div style="float: right; width: 40%;">
+<p><img src="StanCon_files/figure-html/unnamed-chunk-1-1.png" width="432" /></p></div>
+
+</article></slide><slide class=""><hgroup><h2>Main Points</h2></hgroup><article  id="main-points">
+
+<ul>
+<li>The majority of Stan users, the vast majority of potential Stan users, and nearly all Stan beginners should not be using Probability Density Functions</li>
+</ul>
+
+<ul class = 'build'>
+<li>Prior beliefs about unknowns are better articulated through quantile functions</li>
+</ul>
+
+<ul class = 'build'>
+<li>Just a handful of very flexible quantile functions can replace a multitude of well-known probability distributions that lack explicit quantile functions</li>
+</ul>
+
+</article></slide><slide class=""><hgroup><h2>Bayes Rule Gets Unintuitive</h2></hgroup><article  id="bayes-rule-gets-unintuitive">
+
+<ul>
+<li>If \(X\) and \(Y\) are defined on discrete sample spaces, Bayes’ Rule is intuitive: \[\Pr\left(y \mid x\right) = \frac{\Pr\left(y\right) \times \Pr\left(x \mid y\right)}
+{\Pr\left(x\right)} = \frac{\Pr\left(y\right) \times \Pr\left(x \mid y\right)}
+{\sum_{y \in \Omega_Y} \Pr\left(y\right) \Pr\left(x \mid y\right)}\]</li>
+</ul>
+
+<ul class = 'build'>
+<li>If \(X\) and \(\theta\) are defined on continuous sample / parameter spaces, Bayes’ Rule is less intuitive because it involves many Probability Density Functions (PDFs) \[f\left(\theta \mid x\right) = \frac{f\left(\theta\right) \times f\left(x \mid \theta\right)}
+{f\left(x\right)} = \frac{f\left(\theta\right) \times f\left(x \mid \theta\right)}
+{\int_\Theta f\left(\theta\right) \times f\left(x \mid \theta\right) d\theta}\]</li>
+</ul>
+
+<ul class = 'build'>
+<li>But Bayes’ Rule can be re-written under a change-of-variables from \(\theta\) to \(p\) \[f\left(p \mid x\right) = \left|\frac{\partial}{\partial p}\theta\left(p\right) \right|
+\frac{f\left(\theta\left(p\right)\right) \times f\left(x \mid \theta\left(p\right)\right)}
+{f\left(x\right)} = \frac{f\left(p\right) f\left(x \mid \theta\left(p\right)\right)}{f\left(x\right)}\]</li>
+</ul>
+
+</article></slide><slide class=""><hgroup><h2>RNGs Are More Intuitive than PDFs</h2></hgroup><article  id="rngs-are-more-intuitive-than-pdfs">
+
+<ul>
+<li><p>Generative modeling is more fundamental to Bayesianism than Bayes’ Rule is</p></li>
+<li><p>Prior predictive matching is fairly intuitive even on continuous parameter spaces since it operates at the RNG level (where \(\thicksim\) reads as &ldquo;is drawn from&rdquo;): \[\widetilde{\theta} \thicksim \mathcal{Beta}\left(a, b\right);
+\widetilde{x} \thicksim \mathcal{Binomial}\left(n, \widetilde{\theta}\right)\] and then keep \(\widetilde{\theta}\) iff \(\widetilde{x} = x\). Acceptance proportion converges to \(\Pr\left(x\right)\) and each kept \(\widetilde{\theta} \thicksim\) Beta\(\left(\theta \mid a + x, b + n - x\right)\) (i.e. the posterior distribution)</p></li>
+</ul>
+
+<ul class = 'build'>
+<li>But in the Stan language, \(\thicksim\) does NOT read as &ldquo;is drawn from&rdquo;</li>
+</ul>
+
+</article></slide><slide class=""><hgroup><h2>Common Probability Distributions Are Not Useful</h2></hgroup><article  id="common-probability-distributions-are-not-useful">
+
+<ul>
+<li><p>There are too many probability distributions, leading to a paradox of choice</p></li>
+<li><p>None were originally intended to be used as priors</p></li>
+<li><p>Most common probability distributions were derived well before computers were invented to have elementary expressions for \(\mu\) and \(\sigma^2\)</p></li>
+</ul>
+
+<ul class = 'build'>
+<li>People do not have prior expectations in their heads</li>
+</ul>
+
+<ul class = 'build'>
+<li>Historically, prior distribution families were chosen to do Gibbs sampling.</li>
+</ul>
+
+<ul class = 'build'>
+<li>Why has no one asked (until recently) &ldquo;What probability distributions are most useful for expressing beliefs about unknowns?&rdquo;</li>
+</ul>
+
+</article></slide><slide class=""><hgroup><h2>The Beta Distribution Is Particularly Not Useful</h2></hgroup><article  id="the-beta-distribution-is-particularly-not-useful">
+
+<ul>
+<li><p>PDF is not elementary but \(\mu = \frac{a}{a + b}\) and \(\sigma^2 = \frac{ab}{\left(a + b\right)^2 \left(a + b + 1\right)}\) are</p></li>
+<li><p>Can reparameterize as \(a = \mu \left(\frac{\mu \left(1 - \mu\right)}{\sigma^2} - 1\right)\) and \(b = \left(1 - \mu\right) \left(\frac{\mu \left(1 - \mu\right)}{\sigma^2} - 1\right)\)</p></li>
+<li><p>Beta distribution has the maximum differential entropy among all probability distributions over \(\Theta = \left[0,1\right]\) that have a given \(\mathbb{E} \ln \theta\) and \(\mathbb{E} \ln \left(1 - \theta\right)\)</p></li>
+</ul>
+
+</article></slide><slide class=""><hgroup><h2>Inverse Cumulative Distribution Functions (ICDFs)</h2></hgroup><article  id="inverse-cumulative-distribution-functions-icdfs">
+
+<ul>
+<li><p>A Cumulative Distribution Function (CDF), \(F\left(\theta \mid \dots\right)\), is an increasing function from \(\Theta\) to \(\left[0,1\right]\) so its inverse is an increasing function from \(\left[0,1\right]\) to \(\Theta\)</p></li>
+<li><p>\(F^{-1}\left(0.5 \mid \dots \right)\) is the median, while \(F^{-1}\left(0.25 \mid \dots \right)\) and \(F^{-1}\left(0.75 \mid \dots \right)\) are the lower and upper quartiles, so an ICDF is also called a quantile function</p></li>
+</ul>
+
+<ul class = 'build'>
+<li>If \(\widetilde{p} \thicksim Uniform\left(0,1\right)\) and \(\widetilde{\theta} = F^{-1}\left(\widetilde{p} \mid \dots\right)\), then \(\widetilde{\theta}\) is a realization from a probability distribution defined by that ICDF</li>
+</ul>
+
+<ul class = 'build'>
+<li>\(\mathbb{E}\theta = \int_0^1 F^{-1}\left(p \mid \dots\right) dp = \int_\Theta \theta f\left(\theta \mid \dots\right) d\theta\) iff the integrals converge</li>
+</ul>
+
+<ul class = 'build'>
+<li>But CDFs and especially ICDFs rarely have explicit forms, whereas PDFs do</li>
+</ul>
+
+</article></slide><slide class=""><hgroup><h2>Stan Skeleton with Inverse CDF Transformations</h2></hgroup><article  id="stan-skeleton-with-inverse-cdf-transformations">
+
+<pre class = 'prettyprint lang-stan'>data {
+  int&lt;lower = 0&gt; N;                // number of observations
+  vector[N] y;                     // observed outcomes
+  ...                              // known hyperparameters
+}
+parameters {
+  real&lt;lower = 0, upper = 1&gt; p;    // cumulative probability
+}
+transformed parameters {
+  real theta = some_icdf(p, ...);  // parameter of interest
+}
+model {
+  y ~ likelihood(theta);           // function of p, not y
+} // no explicit prior distribution for p because implicitly uniform
+generated quantities {
+  real prior_y = likelihood_rng(some_icdf(uniform_rng(0, 1), ...))
+  real post_y  = likelihood_rng(theta);
+}</pre>
+
+</article></slide><slide class=""><hgroup><h2>Chebyshev Approximations of the 1st Kind \(\left(T_k\right)\)</h2></hgroup><article  id="chebyshev-approximations-of-the-1st-kind-leftt_kright">
+
+<ul>
+<li><p>Suppose you wanted to approximate the ICDF of the Beta(2, 2) distribution</p></li>
+<li><p>Let \(F^{-1}\left(p \mid a = 2, b = 2\right) = \sum_{k = 0}^\infty c_k T_k\left(2p - 1\right)\), where for all \(k &gt; 1\) \[T_k\left(2p - 1\right) \equiv 2\left(2p - 1\right) T_{k - 1}\left(2p - 1\right) - T_{k - 2}\left(2p - 1\right)\] with base cases \(T_0\left(2p - 1\right) = 1\) and \(T_1\left(2p - 1\right) = 2p - 1\)</p></li>
+<li><p>\(F^{-1}\left(p \mid a = 2, b = 2\right) \approx \sum_{k = 0}^K c_k T_k\left(2p - 1\right)\) for a given finite \(K\)</p></li>
+<li><p>Chebyshev approximation converges as \(K \uparrow \infty\) for any Lipschitz-continuous ICDF in a nearly minimax way &amp; the minimax way is rarely analytically feasible</p></li>
+</ul>
+
+</article></slide><slide class=""><hgroup><h2>Chebyshev Approximation of the Beta(2, 2) ICDF</h2></hgroup><article  id="chebyshev-approximation-of-the-beta2-2-icdf">
+
+<p><img src="StanCon_files/figure-html/unnamed-chunk-3-1.png" width="1056" /></p>
+
+</article></slide><slide class=""><hgroup><h2>Approximation with 1 interior and 2 end points</h2></hgroup><article  id="approximation-with-1-interior-and-2-end-points">
+
+<p><img src="StanCon_files/figure-html/unnamed-chunk-3-2.png" width="1056" /></p>
+
+</article></slide><slide class=""><hgroup><h2>Approximation with 2 interior and 2 end points</h2></hgroup><article  id="approximation-with-2-interior-and-2-end-points">
+
+<p><img src="StanCon_files/figure-html/unnamed-chunk-3-3.png" width="1056" /></p>
+
+</article></slide><slide class=""><hgroup><h2>Approximation with 3 interior and 2 end points</h2></hgroup><article  id="approximation-with-3-interior-and-2-end-points">
+
+<p><img src="StanCon_files/figure-html/unnamed-chunk-3-4.png" width="1056" /></p>
+
+</article></slide><slide class=""><hgroup><h2>Approximation with 4 interior and 2 end points</h2></hgroup><article  id="approximation-with-4-interior-and-2-end-points">
+
+<p><img src="StanCon_files/figure-html/unnamed-chunk-3-5.png" width="1056" /></p>
+
+</article></slide><slide class=""><hgroup><h2>Approximation with 5 interior and 2 end points</h2></hgroup><article  id="approximation-with-5-interior-and-2-end-points">
+
+<p><img src="StanCon_files/figure-html/unnamed-chunk-3-6.png" width="1056" /></p>
+
+</article></slide><slide class=""><hgroup><h2>Approximation with 6 interior and 2 end points</h2></hgroup><article  id="approximation-with-6-interior-and-2-end-points">
+
+<p><img src="StanCon_files/figure-html/unnamed-chunk-3-7.png" width="1056" /></p>
+
+</article></slide><slide class=""><hgroup><h2>Approximation with 7 interior and 2 end points</h2></hgroup><article  id="approximation-with-7-interior-and-2-end-points">
+
+<p><img src="StanCon_files/figure-html/unnamed-chunk-3-8.png" width="1056" /></p>
+
+</article></slide><slide class=""><hgroup><h2>Approximation with 7 interior and 2 end points</h2></hgroup><article  id="approximation-with-7-interior-and-2-end-points-1">
+
+<p><img src="StanCon_files/figure-html/unnamed-chunk-3-9.png" width="1056" /></p>
+
+</article></slide><slide class=""><hgroup><h2>The No Name Distribution of the 1st Kind</h2></hgroup><article  id="the-no-name-distribution-of-the-1st-kind">
+
+<p>The no name distribution of the first kind has ICDF (provided it is increasing) \[\theta\left(p; \mathbf{c}\right) \equiv \sum_{k = 0}^K c_k T_k\left(2p - 1\right)\] with \(\mathbf{c}\) such that \(\theta\left(p; \mathbf{c}\right)\) runs through the \(K + 1\) quantiles the user provides</p>
+
+</article></slide><slide class=""><hgroup><h2>Tweedie(\(\phi = 1, \mu = 1, \xi = e\)) Example</h2></hgroup><article  class="build" id="tweediephi-1-mu-1-xi-e-example">
+
+<ul>
+<li>Tweedie distribution is defined over \(\Theta \in \left[0,\infty\right)\) but does not have an explicit PDF, CDF, ICDF, or anything else. Nevertheless, it satisfies \(\mathrm{Var}\left(\theta\right) = \phi \mu^\xi\). \[\theta\left(p; \mathbf{c}\right) \equiv e^{\tanh^{-1}\sum_{k = 0}^K c_k T_k\left(2p - 1\right)}
+\iff \tanh \log \theta\left(p; \mathbf{c}\right) \equiv \sum_{k = 0}^K c_k T_k\left(2p - 1\right)\]</li>
+</ul>
+
+<pre class = 'prettyprint lang-r'>q &lt;- qno_name1(quantiles = c(0, 1 / 3, 2 / 3, 4 / 3, Inf), u = c(0, 0.25, 0.5, 0.75, 1))</pre>
+
+<p><img src="StanCon_files/figure-html/unnamed-chunk-5-1.png" width="1056" /></p>
+
+</article></slide><slide class=""><hgroup><h2>Standard Stable(\(\alpha = 1.9, \beta = 0.5\)) Example</h2></hgroup><article  class="build" id="standard-stablealpha-1.9-beta-0.5-example">
+
+<ul>
+<li>Stable distribution is generically defined over \(\Theta = \mathbb{R}\) but does not have an explicit PDF, CDF, or ICDF. It does have an elementary characteristic function. \[\theta\left(p; \mathbf{c}\right) \equiv \tanh^{-1}\sum_{k = 0}^K c_k T_k\left(2p - 1\right)
+\iff \tanh \theta\left(p; \mathbf{c}\right) \equiv \sum_{k = 0}^K c_k T_k\left(2p - 1\right)\]</li>
+</ul>
+
+<pre class = 'prettyprint lang-r'>q &lt;- qno_name1(quantiles = c(-Inf, -0.9, 0, 1, Inf), u = c(0, 0.25, 0.5, 0.75, 1))</pre>
+
+<pre >## Error in boyd(c): 
+## Implied quantile function is decreasing near 0.0063, 0.9447.
+## Try increasing the number of quantiles and / or changing their values.</pre>
+
+<pre class = 'prettyprint lang-r'>q &lt;- qno_name1(quantiles = c(-Inf, -1.75, -0.9, 0, 1, 2, Inf), 
+               u = c(0, 0.1, 0.25, 0.5, 0.75, 0.9, 1))</pre>
+
+</article></slide><slide class=""><hgroup><h2></h2></hgroup><article  id="section">
+
+<p><img src="StanCon_files/figure-html/unnamed-chunk-8-1.png" width="1056" /></p>
+
+</article></slide><slide class=""><hgroup><h2>Constant Elasticity of Substitution (CES) Models</h2></hgroup><article  id="constant-elasticity-of-substitution-ces-models">
+
+<p>\[Y_{t} \approx \gamma e^{\lambda \left(t - 1\right)} \left(\delta\left(\delta_{1}K_{t}^{-\rho_{1}} + \left(1-\delta_{1}\right)E_{t}^{-\rho_{1}}\right)^{\frac{\rho}{\rho_1}} + \left(1-\delta\right)L_{t}^{-\rho}\right)^{-\frac{\nu}{\rho}}\]</p>
+
+<ul>
+<li><p>\(Y_t\) is value added, \(K_t\) is capital, \(E_t\) is energy, and \(L_t\) is labor</p></li>
+<li><p>\(\rho = \frac{1}{\sigma} - 1\) and \(\rho_1 = \frac{1}{\sigma_1} - 1\) where \(\sigma &gt; 0\) is the elasticity of substitution between labor and both capital and energy (the quantity of interest), while \(\sigma_1 &gt; 0\) is the elasticity of substitution between capital and energy</p></li>
+<li><p>\(\gamma, \lambda &gt; 0, \delta \in \left(0,1\right), \delta_1 \in \left(0,1\right)\) and \(\nu &gt; 0\) are not that important today</p></li>
+<li><p>Take logarithms and assume Gaussian error with standard deviation \(\omega &gt; 0\). Informative priors on the parameters are essential to avoid divergences.</p></li>
+</ul>
+
+</article></slide><slide class=""><hgroup><h2>Point Estimates of \(\sigma_1\) from Gechert et al. (2019)</h2></hgroup><article  id="point-estimates-of-sigma_1-from-gechert-et-al.-2019">
+
+<img src='elasticities.png' title='fig:'/><p class='caption'>elasticitiy estimates</p>
+
+</article></slide><slide class=""><hgroup><h2>Prior Quantile Function for \(\sigma\) and \(\sigma_1\)</h2></hgroup><article  id="prior-quantile-function-for-sigma-and-sigma_1">
+
+<pre class = 'prettyprint lang-r'>q &lt;- qno_name1(quantiles = c(0, 0.27, 0.5, 0.9, Inf), u = c(0, 0.25, 0.5, 0.75, 1))
+ggplot(data.frame(sigma = q(runif(9999)))) + geom_freqpoly(aes(x = sigma, after_stat(density))) + xlim(0, 3)</pre>
+
+<p><img src="StanCon_files/figure-html/unnamed-chunk-9-1.png" width="1056" /></p>
+
+</article></slide><slide class=""><hgroup><h2>Stan Program for a CES Model</h2></hgroup><article  class="smaller" id="stan-program-for-a-ces-model">
+
+<div class="columns-2">
+<pre class = 'prettyprint lang-stan'>// defines no_name1_icdf(p, u, theta)
+#include no_name1.stan
+data {
+  int&lt;lower = 0&gt; T; // if T == 0, this draws from priors
+  vector[T] log_Y;
+  vector[T] log_K;
+  vector[T] log_E;
+  vector[T] log_L;
+  positive_ordered[5] u;    ordered[5] theta[7];
+  positive_ordered[6] u_lg; ordered[6] theta_lg;
+}
+parameters {
+  vector&lt;lower = 0, upper = 1&gt;[8] p;
+}  // cumulative probability primitives
+transformed parameters {
+  real sigma   = no_name1_icdf(p[1], u, theta[1]);
+  real sigma_1 = no_name1_icdf(p[2], u, theta[2]);
+  real delta   = no_name1_icdf(p[3], u, theta[3]);
+  real delta_1 = no_name1_icdf(p[4], u, theta[4]);
+  real nu      = no_name1_icdf(p[5], u, theta[5]);
+  real omega   = no_name1_icdf(p[6], u, theta[6]);
+  real lambda  = no_name1_icdf(p[7], u, theta[7]);
+  real log_gamma = no_name1_icdf(p[8], u_lg, theta_lg);
+}
+model {
+  real rho   = -1 + inv(sigma);
+  real rho_1 = -1 + inv(sigma_1);
+  real nu_rho = nu / rho;
+  real log_delta = log(delta);
+  real log_delta_1 = log(delta_1);
+  real log1m_delta = log1m(delta);
+  real log1m_delta_1 = log1m(delta_1);
+  real rho_rho_1 = rho / rho_1;
+  vector[T] mu;
+  for (t in 1:T) // with numerical stability
+    mu[t] = log_gamma
+          + lambda * (t - 1)
+          - nu_rho
+          * log_sum_exp(log_delta + rho_rho_1
+          * log_sum_exp(log_delta_1 - 
+                        rho_1 * log_K[t],
+                        log1m_delta_1 - 
+                        rho_1 * log_E[t]),
+                        log1m_delta - 
+                        rho * log_L[t]);
+  log_Y ~ normal(mu, omega); // log-likelihood
+} // MLEs invariant to the ICDF transformations</pre></div>
+
+</article></slide><slide class=""><hgroup><h2>Maximum Likelihood Estimates of a CES Model</h2></hgroup><article  id="maximum-likelihood-estimates-of-a-ces-model">
+
+<pre class = 'prettyprint lang-r'>data(GermanIndustry, package = &quot;micEconCES&quot;)
+GermanIndustry &lt;- log(subset(GermanIndustry, year &lt; 1973 | year &gt; 1975)[ , 2:5])
+colnames(GermanIndustry) &lt;- paste0(&quot;log_&quot;, c(&#39;Y&#39;, &#39;K&#39;, &#39;L&#39;, &#39;E&#39;))
+dat &lt;- c(list(T = nrow(GermanIndustry), u_lg = c(0, 0.25, 0.5, 0.75, 0.9, 1),
+              theta_lg = c(-2, 1, 3, 5, 7, 10), u = c(0, 0.25, 0.5, 0.75, 1),
+              theta = list(sigma   = c(0, 0.27, 0.5, 0.9, Inf),  
+                           sigma_1 = c(0, 0.27, 0.5, 0.9, Inf),
+                           delta   = c(0, 1/3, 0.5, 2/3, 1), 
+                           delta_1 = c(0, 1/3, 0.5, 2/3, 1), nu = c(0, 0.6, 1.0, 1.4, Inf),
+                           omega   = c(0, 0.016, 0.03, 0.05, 0.15),
+                           lambda  = c(0, 0.01, 0.02, 0.03, 0.05))), GermanIndustry)</pre>
+
+<pre class = 'prettyprint lang-r'>MLEs &lt;- optimizing(CES, data = dat, as_vector = FALSE, refresh = 0, seed = 54321)
+round(rbind(theta = unlist(MLEs$par[-1]), p = MLEs$par$p), digits = 3) # delta on boundary</pre>
+
+<pre >##       sigma sigma_1 delta delta_1    nu omega lambda log_gamma
+## theta 0.174   0.153 0.999   0.799 0.583 0.030  0.014     4.261
+## p     0.143   0.122 0.999   0.872 0.240 0.489  0.347     0.659</pre>
+
+</article></slide><slide class=""><hgroup><h2>Posterior Estimates for a CES Model</h2></hgroup><article  id="posterior-estimates-for-a-ces-model">
+
+<pre class = 'prettyprint lang-r'>post &lt;- sampling(CES, data = dat, seed = 12345,
+                 control = list(adapt_delta = 0.96, max_treedepth = 12), refresh = 0)
+print(post, pars = &quot;p&quot;, include = FALSE, probs = c(.025, .1, .25, .5, 0.75, .9, .975))</pre>
+
+<pre >...
+##            mean se_mean   sd  2.5%   10%   25%   50%   75%   90% 97.5% n_eff Rhat
+## sigma      3.45    0.15 5.09  0.83  1.12  1.54  2.21  3.56  5.97 14.74  1205    1
+## sigma_1    1.31    0.05 1.69  0.36  0.44  0.57  0.82  1.37  2.57  5.06  1281    1
+## delta      0.72    0.01 0.20  0.32  0.44  0.56  0.74  0.89  0.97  0.99  1505    1
+## delta_1    0.05    0.00 0.06  0.00  0.00  0.01  0.03  0.07  0.12  0.22  1785    1
+## nu         0.90    0.00 0.08  0.75  0.80  0.85  0.89  0.94  1.00  1.06  1536    1
+## omega      0.02    0.00 0.00  0.02  0.02  0.02  0.02  0.03  0.03  0.03  1840    1
+## lambda     0.02    0.00 0.00  0.02  0.02  0.02  0.02  0.02  0.02  0.02  1173    1
+## log_gamma  1.13    0.01 0.46  0.27  0.57  0.82  1.10  1.43  1.71  2.06  1373    1
+## lp__      83.83    0.08 2.41 78.40 80.54 82.43 84.15 85.59 86.68 87.61   957    1
+...</pre>
+
+<pre >## Maximized likelihood is 93.64359</pre>
+
+</article></slide><slide class=""><hgroup><h2>Conclusions</h2></hgroup><article  id="conclusions">
+
+<ul>
+<li>Your audience is unlikely to be equipped to understand prior PDFs</li>
+<li>Quantiles rather than expectations are an easier entry point</li>
+<li>Avoid prior PDFs by utilizing the logic of RNGs that apply an ICDF to a standard uniform random variate to obtain a random variate from the intended distribution</li>
+<li>We need to get ICDFs into Stan (many of them are in Boost)</li>
+</ul>
+
+<ul class = 'build'>
+<li>Construct a prior ICDF rather than choosing one from list</li>
+</ul>
+
+</article></slide><slide class=""><hgroup><h2>References</h2></hgroup><article  class="smaller" id="references">
+
+<ul>
+<li>Chalabi, Y., 2012, <em>New Directions in Statistical Distributions, Parametric Modeling and Portfolio Selection</em>, Dissertation, ETH Zurich. <a href='https://www.research-collection.ethz.ch/bitstream/handle/20.500.11850/64963/eth-6457-02.pdf?sequence=2&amp;isAllowed=y' title=''>Link</a></li>
+<li>Gechert, S. et al., 2019 &ldquo;Death to the Cobb-Douglas Production Function? A Quantitative Survey of the Capital-Labor Substitution Elasticity&rdquo;, ZBW – Leibniz Information Centre for Economics, Kiel, Hamburg <a href='https://www.econstor.eu/bitstream/10419/203136/1/main_SG.pdf' title=''>Link</a></li>
+<li>Gil, A., Segura, J., and Temme, N., 2007, <em>Numerical Methods for Special Functions</em>, Society for Industrial and Applied Mathematics. <a href='https://archive.siam.org/books/ot99/OT99SampleChapter.pdf' title=''>Chapter 3</a></li>
+<li>Gilchrist, W., 2000, <em>Statistical Modelling with Quantile Functions</em>, CRC Press. <a href='https://www.google.com/books/edition/Statistical_Modelling_with_Quantile_Func/7c1LimP_e-AC?hl=en&amp;gbpv=1&amp;dq=Statistical+Modelling+with+Quantile+Functions&amp;printsec=frontcover' title=''>Link</a></li>
+<li>Hadlock, C., 2017, <em>Quantile-Parameterized Methods for Quantifying Uncertainty in Decision Analysis</em>, Dissertation, University of Texas at Austin. <a href='https://repositories.lib.utexas.edu/bitstream/handle/2152/63037/HADLOCK-DISSERTATION-2017.pdf?sequence=1&amp;isAllowed=y' title=''>Link</a></li>
+<li>Henningsen, A. and Henningsen G., 2014 &ldquo;Econometric Estimation of the &lsquo;Constant Elasticity of Substitution&rsquo; Function in R: Package micEconCES&rdquo;, <a href='https://cran.r-project.org/web/packages/micEconCES/vignettes/CES.pdf' title=''>Vignette</a></li>
+<li>Keelin, T. and Powley B., 2011, &ldquo;Quantile Parameterized Distributions&rdquo;, <em>Decision Analysis</em>, 8(3) 206 – 2019. <a href='http://www.metalogdistributions.com/images/KeelinPowley_QuantileParameterizedDistributions_2011.pdf' title=''>Link</a></li>
+<li>Trefethen, L., 2013, <em>Approximation Theory and Approximation Practice</em>, Society for Industrial and Applied Mathematics. <a href='http://www.chebfun.org/ATAP/' title=''>Website</a></li>
+</ul></article></slide>
+
+
+  <slide class="backdrop"></slide>
+
+</slides>
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "StanCon_files/mathjax-local/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+<!-- map slide visiblity events into shiny -->
+<script>
+  (function() {
+    if (window.jQuery) {
+       window.jQuery(document).on('slideleave', function(e) {
+         window.jQuery(e.target).trigger('hidden');
+      });
+       window.jQuery(document).on('slideenter', function(e) {
+         window.jQuery(e.target).trigger('shown');
+      });
+    }
+  })();
+</script>
+
+</body>
+</html>

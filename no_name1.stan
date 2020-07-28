@@ -17,22 +17,21 @@ functions {
     return T;
   }
 
-  real no_name1_db_icdf(real p, data vector u, data vector theta) {
+  real no_name1_icdf(real p, data vector u, data vector theta) {
     int Kp1 = rows(u);
     real constant = 4 * p - 2;
     vector[Kp1] cheb;
     cheb[1] = 1;
     cheb[2] = 0.5 * constant;
     for (k in 3:Kp1) cheb[k] = constant * cheb[k - 1] - cheb[k - 2];
+    if (u[1] == 0 && theta[1] == 0 && 
+        u[Kp1] == 1 && theta[Kp1] == positive_infinity())
+      return exp(atanh(dot_product(cheb, make_T(u[1:rows(theta)]) \ 
+                                                tanh(log(theta)))));   
+    if (u[1] == 0 && theta[1] == negative_infinity() && 
+        u[Kp1] == 1 && theta[Kp1] == positive_infinity())
+      return atanh(dot_product(cheb, make_T(u[1:rows(theta)]) \ 
+                                            tanh(theta)));   
     return dot_product(cheb, make_T(u[1:rows(theta)]) \ theta);
   }
-  
-  real no_name1_lb_icdf(real p, data vector u, data vector theta) {
-    return exp(atanh(no_name1_db_icdf(p, u, tanh(log(theta)))));
-  }
-  
-  real no_name1_ub_icdf(real p, data vector u, data vector theta) {
-    return atanh(no_name1_db_icdf(p, u, tanh(theta)));
-  }
-  
 }
