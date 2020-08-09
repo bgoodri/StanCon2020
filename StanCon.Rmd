@@ -197,7 +197,7 @@ model {
   y ~ likelihood(theta);           // function of p, not y
 } // no explicit prior distribution for p because implicitly uniform
 generated quantities {
-  real prior_y = likelihood_rng(some_icdf(uniform_rng(0, 1), ...))
+  real prior_y = likelihood_rng(some_icdf(uniform_rng(0, 1), ...));
   real post_y  = likelihood_rng(theta);
 }
 ```
