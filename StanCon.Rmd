@@ -10,8 +10,6 @@ header-includes:
 output:
   ioslides_presentation: 
     widescreen: yes
-    mathjax: local
-    self_contained: no
 editor_options: 
   chunk_output_type: console
 ---
