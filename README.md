@@ -1,2 +1,2 @@
 # StanCon2020
-Material for my proposed StanCon talk
+Material for my StanCon [talk](https://youtu.be/_wfZSvasLFk)
